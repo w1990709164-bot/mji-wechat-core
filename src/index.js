@@ -1,3 +1,3 @@
 "use strict";
 
-module.exports = require("./mji-index");
+module.exports = require("./mji-openai-index");
