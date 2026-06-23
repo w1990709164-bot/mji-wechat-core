@@ -3,7 +3,7 @@
 const { MjiOpenAIApp } = require("./mji-openai-app");
 const { StreamDelivery } = require("../core/stream-delivery");
 const { ThreadStateStore } = require("../core/thread-state-store");
-const { createMemoryAwareRuntimeAdapter } = require("../adapters/runtime/openai-compatible/memory-runtime");
+const { createReliableMemoryRuntimeAdapter } = require("../adapters/runtime/openai-compatible/reliable-memory-runtime");
 
 class MjiWalletApp extends MjiOpenAIApp {
   constructor(config) {
@@ -17,7 +17,7 @@ class MjiWalletApp extends MjiOpenAIApp {
       return;
     }
 
-    this.runtimeAdapter = createMemoryAwareRuntimeAdapter(this.config, {
+    this.runtimeAdapter = createReliableMemoryRuntimeAdapter(this.config, {
       billing: this.mjiStorage.billing,
       resolveContext: ({ bindingKey }) => this.mjiContextByBindingKey.get(bindingKey) || null,
       loadHistory: async (context, limit) => {
