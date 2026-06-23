@@ -175,7 +175,8 @@ class MjiOpenAIApp extends MjiApp {
         outputTokens: nonNegativeInt(event.payload.outputTokens),
         cachedTokens: nonNegativeInt(event.payload.cachedInputTokens),
       };
-      usage.costMicrounits = calculateCostMicrounits(usage);
+      const billing = calculateBilling(usage);
+      usage.costMicrounits = billing.costMicrounits;
       this.mjiUsageByThreadId.set(threadId, usage);
 
       await this.mjiStorage.chats.recordUsage({
@@ -187,6 +188,9 @@ class MjiOpenAIApp extends MjiApp {
           runtimeId: normalizeText(event.payload.runtimeId) || "openai-compatible",
           totalTokens: nonNegativeInt(event.payload.currentTokens),
           reasoningTokens: nonNegativeInt(event.payload.reasoningTokens),
+          billingMode: billing.mode,
+          billingUnit: billing.unit,
+          providerCredits: billing.providerCredits,
         },
       });
       console.log(
@@ -238,7 +242,17 @@ function resolveInboundContentType(message) {
   return "file";
 }
 
-function calculateCostMicrounits(usage) {
+function calculateBilling(usage) {
+  const fixedRequestCredits = optionalNonNegativeNumber(process.env.MJI_API_COST_PER_REQUEST);
+  if (fixedRequestCredits !== null) {
+    return {
+      mode: "fixed_request",
+      unit: "provider_credit",
+      providerCredits: fixedRequestCredits,
+      costMicrounits: Math.max(0, Math.round(fixedRequestCredits * 1_000_000)),
+    };
+  }
+
   const inputRate = nonNegativeNumber(process.env.MJI_API_INPUT_COST_PER_MILLION);
   const outputRate = nonNegativeNumber(process.env.MJI_API_OUTPUT_COST_PER_MILLION);
   const cachedRateRaw = process.env.MJI_API_CACHED_COST_PER_MILLION;
@@ -246,11 +260,16 @@ function calculateCostMicrounits(usage) {
   const cachedRate = hasCachedRate ? nonNegativeNumber(cachedRateRaw) : inputRate;
   const cachedTokens = Math.min(usage.inputTokens, usage.cachedTokens);
   const regularInputTokens = Math.max(0, usage.inputTokens - cachedTokens);
-  return Math.max(0, Math.round(
-    regularInputTokens * inputRate
-    + cachedTokens * cachedRate
-    + usage.outputTokens * outputRate
-  ));
+  return {
+    mode: "token",
+    unit: normalizeText(process.env.MJI_API_COST_UNIT) || "currency",
+    providerCredits: null,
+    costMicrounits: Math.max(0, Math.round(
+      regularInputTokens * inputRate
+      + cachedTokens * cachedRate
+      + usage.outputTokens * outputRate
+    )),
+  };
 }
 
 function nonNegativeInt(value) {
@@ -261,6 +280,12 @@ function nonNegativeInt(value) {
 function nonNegativeNumber(value) {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function optionalNonNegativeNumber(value) {
+  if (value == null || String(value).trim() === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 }
 
 function normalizeText(value) {
