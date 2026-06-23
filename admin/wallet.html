@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="mji-admin-token" content="__ADMIN_TOKEN__" />
+  <title>M叽余额管理</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d12;
+      --panel: rgba(21, 24, 33, .88);
+      --panel-2: #171a23;
+      --line: rgba(255, 255, 255, .09);
+      --text: #f6f7fb;
+      --muted: #9ba3b4;
+      --accent: #8b7cff;
+      --accent-2: #aa9fff;
+      --success: #48d59a;
+      --danger: #ff6b7a;
+      --warning: #ffc568;
+      --shadow: 0 22px 70px rgba(0, 0, 0, .35);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--text); }
+    body {
+      background:
+        radial-gradient(circle at 10% 0%, rgba(139,124,255,.18), transparent 30%),
+        radial-gradient(circle at 90% 10%, rgba(72,213,154,.10), transparent 25%),
+        var(--bg);
+    }
+
+    button, input { font: inherit; }
+    button { cursor: pointer; }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 330px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: rgba(10, 12, 18, .78);
+      backdrop-filter: blur(18px);
+      padding: 24px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+      min-height: 100vh;
+    }
+
+    .brand { display: flex; align-items: center; gap: 12px; padding: 0 8px; }
+    .logo {
+      width: 46px; height: 46px; border-radius: 16px;
+      display: grid; place-items: center;
+      background: linear-gradient(135deg, var(--accent), #5a4fd9);
+      box-shadow: 0 10px 28px rgba(139,124,255,.35);
+      font-weight: 800; font-size: 18px;
+    }
+    .brand h1 { margin: 0; font-size: 18px; }
+    .brand p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+
+    .search-wrap { display: flex; gap: 8px; }
+    .search {
+      width: 100%; border: 1px solid var(--line); background: var(--panel-2);
+      color: var(--text); border-radius: 13px; padding: 12px 13px; outline: none;
+    }
+    .search:focus { border-color: rgba(139,124,255,.7); box-shadow: 0 0 0 3px rgba(139,124,255,.12); }
+
+    .icon-btn {
+      width: 42px; min-width: 42px; border: 1px solid var(--line); border-radius: 13px;
+      background: var(--panel-2); color: var(--text);
+    }
+    .icon-btn:hover { border-color: rgba(139,124,255,.55); }
+
+    .user-list {
+      display: flex; flex-direction: column; gap: 8px; overflow-y: auto;
+      padding-right: 4px; flex: 1; min-height: 220px;
+    }
+    .user-card {
+      border: 1px solid transparent; background: transparent; color: var(--text);
+      border-radius: 15px; padding: 12px; text-align: left; width: 100%;
+      display: grid; grid-template-columns: 42px minmax(0,1fr) auto; gap: 11px; align-items: center;
+    }
+    .user-card:hover { background: rgba(255,255,255,.045); }
+    .user-card.active { background: rgba(139,124,255,.13); border-color: rgba(139,124,255,.38); }
+    .avatar {
+      width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center;
+      background: linear-gradient(135deg, #2d3240, #20232d); color: #dfe2ec; font-weight: 700;
+    }
+    .user-card.active .avatar { background: linear-gradient(135deg, var(--accent), #6256d8); }
+    .user-name { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .user-id { margin-top: 3px; color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mini-balance { font-size: 12px; color: var(--accent-2); font-weight: 700; }
+
+    .sidebar-foot {
+      color: var(--muted); font-size: 11px; line-height: 1.6; padding: 0 8px;
+    }
+
+    .main { padding: 34px; overflow-x: hidden; }
+    .topbar { display: flex; justify-content: space-between; gap: 20px; align-items: flex-start; margin-bottom: 24px; }
+    .topbar h2 { margin: 0; font-size: 28px; letter-spacing: -.02em; }
+    .topbar p { margin: 7px 0 0; color: var(--muted); }
+    .pill {
+      padding: 8px 12px; border-radius: 999px; border: 1px solid rgba(72,213,154,.28);
+      color: var(--success); background: rgba(72,213,154,.08); font-size: 12px;
+    }
+
+    .empty {
+      min-height: 65vh; display: grid; place-items: center; text-align: center;
+      border: 1px dashed var(--line); border-radius: 24px; color: var(--muted);
+    }
+    .empty strong { display: block; color: var(--text); font-size: 18px; margin-bottom: 7px; }
+
+    .content { display: none; }
+    .content.visible { display: block; }
+
+    .profile {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: 22px;
+      padding: 20px; box-shadow: var(--shadow); margin-bottom: 18px;
+    }
+    .profile-main { display: flex; gap: 14px; align-items: center; min-width: 0; }
+    .profile-avatar {
+      width: 58px; height: 58px; border-radius: 19px; display: grid; place-items: center;
+      background: linear-gradient(135deg, var(--accent), #5a4fd9); font-size: 21px; font-weight: 800;
+    }
+    .profile h3 { margin: 0; font-size: 20px; }
+    .profile-meta { margin-top: 6px; color: var(--muted); font-size: 12px; word-break: break-all; }
+    .copy-btn {
+      border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+      border-radius: 12px; padding: 10px 13px;
+    }
+
+    .stats { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; margin-bottom: 18px; }
+    .stat {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+      padding: 19px; box-shadow: var(--shadow);
+    }
+    .stat-label { color: var(--muted); font-size: 12px; }
+    .stat-value { margin-top: 9px; font-size: 28px; font-weight: 800; letter-spacing: -.03em; }
+    .stat.available .stat-value { color: var(--success); }
+    .stat.reserved .stat-value { color: var(--warning); }
+
+    .grid { display: grid; grid-template-columns: minmax(300px, .9fr) minmax(440px, 1.4fr); gap: 18px; align-items: start; }
+    .panel {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 22px;
+      padding: 20px; box-shadow: var(--shadow);
+    }
+    .panel h4 { margin: 0 0 16px; font-size: 16px; }
+
+    .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+    .tab {
+      border: 1px solid var(--line); background: var(--panel-2); color: var(--muted);
+      border-radius: 12px; padding: 11px;
+    }
+    .tab.active { background: rgba(139,124,255,.14); color: var(--text); border-color: rgba(139,124,255,.45); }
+
+    .field { margin-bottom: 14px; }
+    .field label { display: block; margin-bottom: 7px; color: var(--muted); font-size: 12px; }
+    .field input {
+      width: 100%; border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+      border-radius: 13px; padding: 12px 13px; outline: none;
+    }
+    .field input:focus { border-color: rgba(139,124,255,.7); box-shadow: 0 0 0 3px rgba(139,124,255,.12); }
+    .hint { color: var(--muted); font-size: 11px; line-height: 1.5; margin-top: -4px; margin-bottom: 14px; }
+
+    .primary {
+      width: 100%; border: 0; border-radius: 14px; padding: 13px 16px;
+      color: white; font-weight: 800; background: linear-gradient(135deg, var(--accent), #6659dc);
+      box-shadow: 0 12px 28px rgba(139,124,255,.25);
+    }
+    .primary:disabled { opacity: .55; cursor: not-allowed; }
+    .primary.refund { background: linear-gradient(135deg, #3bbd89, #248866); box-shadow: 0 12px 28px rgba(72,213,154,.18); }
+
+    .history-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+    .history-head h4 { margin: 0; }
+    .small-btn {
+      border: 1px solid var(--line); background: var(--panel-2); color: var(--text);
+      border-radius: 11px; padding: 8px 11px; font-size: 12px;
+    }
+    .table-wrap { overflow: auto; max-height: 480px; border-radius: 14px; border: 1px solid var(--line); }
+    table { width: 100%; border-collapse: collapse; min-width: 680px; }
+    th, td { text-align: left; padding: 12px 13px; border-bottom: 1px solid var(--line); font-size: 12px; }
+    th { color: var(--muted); font-weight: 600; background: rgba(255,255,255,.025); position: sticky; top: 0; }
+    tr:last-child td { border-bottom: 0; }
+    .type { display: inline-flex; border-radius: 999px; padding: 4px 8px; font-size: 10px; font-weight: 700; }
+    .type.topup { color: var(--success); background: rgba(72,213,154,.12); }
+    .type.refund { color: #7dd7ff; background: rgba(90,190,255,.12); }
+    .type.capture { color: var(--danger); background: rgba(255,107,122,.12); }
+    .type.reserve { color: var(--warning); background: rgba(255,197,104,.12); }
+    .type.release { color: #c5baff; background: rgba(139,124,255,.12); }
+    .history-empty { padding: 34px; text-align: center; color: var(--muted); }
+
+    .toast {
+      position: fixed; right: 24px; bottom: 24px; min-width: 260px; max-width: 420px;
+      background: #20242e; border: 1px solid var(--line); border-radius: 15px; padding: 14px 16px;
+      box-shadow: var(--shadow); transform: translateY(24px); opacity: 0; pointer-events: none;
+      transition: .22s ease; z-index: 99;
+    }
+    .toast.show { transform: translateY(0); opacity: 1; }
+    .toast.success { border-color: rgba(72,213,154,.38); }
+    .toast.error { border-color: rgba(255,107,122,.42); }
+
+    @media (max-width: 980px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar { min-height: auto; border-right: 0; border-bottom: 1px solid var(--line); }
+      .user-list { max-height: 260px; }
+      .main { padding: 22px 16px 40px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 620px) {
+      .stats { grid-template-columns: 1fr; }
+      .profile { align-items: flex-start; flex-direction: column; }
+      .topbar { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">M叽</div>
+        <div>
+          <h1>余额管理</h1>
+          <p>__TENANT_NAME__ · 本机管理员窗口</p>
+        </div>
+      </div>
+
+      <div class="search-wrap">
+        <input id="search" class="search" placeholder="搜索昵称、微信ID、UUID" autocomplete="off" />
+        <button id="reloadUsers" class="icon-btn" title="刷新用户">↻</button>
+      </div>
+
+      <div id="userList" class="user-list"></div>
+      <div class="sidebar-foot">窗口只在本机打开。关闭运行它的 PowerShell 窗口后，此页面将无法继续操作。</div>
+    </aside>
+
+    <main class="main">
+      <div class="topbar">
+        <div>
+          <h2>用户额度</h2>
+          <p>选择用户后直接输入额度，无需再复制命令。</p>
+        </div>
+        <div class="pill">● 仅本机可访问</div>
+      </div>
+
+      <section id="emptyState" class="empty">
+        <div><strong>请选择一位用户</strong>从左侧用户列表中选择后即可充值、补回和查看流水。</div>
+      </section>
+
+      <section id="content" class="content">
+        <div class="profile">
+          <div class="profile-main">
+            <div id="profileAvatar" class="profile-avatar">用</div>
+            <div style="min-width:0">
+              <h3 id="profileName">微信用户</h3>
+              <div id="profileWechat" class="profile-meta"></div>
+              <div id="profileUuid" class="profile-meta"></div>
+            </div>
+          </div>
+          <button id="copyUuid" class="copy-btn">复制用户UUID</button>
+        </div>
+
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-label">账户余额</div>
+            <div id="balance" class="stat-value">0</div>
+          </div>
+          <div class="stat reserved">
+            <div class="stat-label">预留额度</div>
+            <div id="reserved" class="stat-value">0</div>
+          </div>
+          <div class="stat available">
+            <div class="stat-label">可用额度</div>
+            <div id="available" class="stat-value">0</div>
+          </div>
+        </div>
+
+        <div class="grid">
+          <section class="panel">
+            <h4>余额操作</h4>
+            <div class="tabs">
+              <button class="tab active" data-action="topup">充值</button>
+              <button class="tab" data-action="refund">补回额度</button>
+            </div>
+
+            <div class="field">
+              <label for="credits">额度数量</label>
+              <input id="credits" inputmode="decimal" placeholder="例如 100" />
+            </div>
+            <div class="field">
+              <label for="note">备注</label>
+              <input id="note" placeholder="例如：购买套餐、失败补偿" />
+            </div>
+            <div class="field">
+              <label for="reference">业务编号（可不填）</label>
+              <input id="reference" placeholder="例如：order-20260623-001" />
+            </div>
+            <div class="hint">填写业务编号后，重复提交同一个编号不会重复充值。</div>
+            <button id="submitAction" class="primary">确认充值</button>
+          </section>
+
+          <section class="panel">
+            <div class="history-head">
+              <h4>最近余额流水</h4>
+              <button id="reloadHistory" class="small-btn">刷新流水</button>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>类型</th>
+                    <th>额度</th>
+                    <th>操作后余额</th>
+                    <th>备注</th>
+                    <th>时间</th>
+                  </tr>
+                </thead>
+                <tbody id="historyBody"></tbody>
+              </table>
+              <div id="historyEmpty" class="history-empty">暂无流水</div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const token = document.querySelector('meta[name="mji-admin-token"]').content;
+    const state = { users: [], selectedId: '', action: 'topup', selected: null };
+
+    const $ = (id) => document.getElementById(id);
+    const userList = $('userList');
+    const search = $('search');
+    const emptyState = $('emptyState');
+    const content = $('content');
+    const toast = $('toast');
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-MJI-Admin-Token': token,
+          ...(options.headers || {}),
+        },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || `请求失败（${response.status}）`);
+      }
+      return payload;
+    }
+
+    async function loadUsers({ keepSelection = true } = {}) {
+      setUserListLoading();
+      try {
+        const payload = await api('/api/users');
+        state.users = payload.users || [];
+        if (!keepSelection || !state.users.some((user) => user.id === state.selectedId)) {
+          state.selectedId = state.users[0]?.id || '';
+        }
+        renderUsers();
+        if (state.selectedId) await selectUser(state.selectedId, false);
+      } catch (error) {
+        userList.innerHTML = '<div class="history-empty">加载失败</div>';
+        showToast(error.message, 'error');
+      }
+    }
+
+    function setUserListLoading() {
+      userList.innerHTML = '<div class="history-empty">正在加载用户……</div>';
+    }
+
+    function renderUsers() {
+      const keyword = search.value.trim().toLowerCase();
+      const users = state.users.filter((user) => {
+        if (!keyword) return true;
+        return [user.nickname, user.displayName, user.providerUserId, user.id]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(keyword));
+      });
+
+      if (!users.length) {
+        userList.innerHTML = '<div class="history-empty">没有匹配的用户</div>';
+        return;
+      }
+
+      userList.innerHTML = users.map((user) => {
+        const name = user.nickname || user.displayName || '微信用户';
+        const idText = user.providerUserId || user.id;
+        return `
+          <button class="user-card ${user.id === state.selectedId ? 'active' : ''}" data-user-id="${escapeHtml(user.id)}">
+            <span class="avatar">${escapeHtml(firstChar(name))}</span>
+            <span style="min-width:0">
+              <span class="user-name">${escapeHtml(name)}</span>
+              <span class="user-id">${escapeHtml(idText)}</span>
+            </span>
+            <span class="mini-balance">${formatCredits(user.availableCredits)}</span>
+          </button>`;
+      }).join('');
+    }
+
+    async function selectUser(userId, rerender = true) {
+      state.selectedId = userId;
+      if (rerender) renderUsers();
+      try {
+        const payload = await api(`/api/users/${encodeURIComponent(userId)}`);
+        state.selected = { ...payload.user, wallet: payload.wallet };
+        renderSelected();
+        await loadHistory();
+      } catch (error) {
+        showToast(error.message, 'error');
+      }
+    }
+
+    function renderSelected() {
+      const user = state.selected;
+      if (!user) {
+        emptyState.style.display = 'grid';
+        content.classList.remove('visible');
+        return;
+      }
+      emptyState.style.display = 'none';
+      content.classList.add('visible');
+
+      const name = user.nickname || user.displayName || '微信用户';
+      $('profileAvatar').textContent = firstChar(name);
+      $('profileName').textContent = name;
+      $('profileWechat').textContent = `微信ID：${user.providerUserId || '未记录'}`;
+      $('profileUuid').textContent = `用户UUID：${user.id}`;
+      $('balance').textContent = formatCredits(user.wallet.balanceCredits);
+      $('reserved').textContent = formatCredits(user.wallet.reservedCredits);
+      $('available').textContent = formatCredits(user.wallet.availableCredits);
+    }
+
+    async function loadHistory() {
+      if (!state.selectedId) return;
+      const body = $('historyBody');
+      const empty = $('historyEmpty');
+      body.innerHTML = '';
+      empty.style.display = 'block';
+      empty.textContent = '正在加载流水……';
+      try {
+        const payload = await api(`/api/users/${encodeURIComponent(state.selectedId)}/history?limit=50`);
+        const rows = payload.history || [];
+        if (!rows.length) {
+          empty.textContent = '暂无流水';
+          return;
+        }
+        empty.style.display = 'none';
+        body.innerHTML = rows.map((row) => `
+          <tr>
+            <td><span class="type ${escapeHtml(row.type)}">${escapeHtml(typeLabel(row.type))}</span></td>
+            <td>${formatCredits(row.credits)}</td>
+            <td>${formatCredits(row.balanceAfter)}</td>
+            <td title="${escapeHtml(row.referenceKey || '')}">${escapeHtml(row.description || '-')}</td>
+            <td>${escapeHtml(formatDate(row.occurredAt))}</td>
+          </tr>`).join('');
+      } catch (error) {
+        empty.textContent = '流水加载失败';
+        showToast(error.message, 'error');
+      }
+    }
+
+    async function submitAction() {
+      if (!state.selectedId) return showToast('请先选择用户', 'error');
+      const credits = Number($('credits').value);
+      const note = $('note').value.trim();
+      const reference = $('reference').value.trim();
+      if (!Number.isFinite(credits) || credits <= 0) {
+        return showToast('请输入大于 0 的额度', 'error');
+      }
+
+      const actionText = state.action === 'topup' ? '充值' : '补回额度';
+      if (!confirm(`确认给当前用户${actionText} ${formatCredits(credits)} 额度吗？`)) return;
+
+      const button = $('submitAction');
+      button.disabled = true;
+      button.textContent = '正在处理……';
+      try {
+        const payload = await api(`/api/users/${encodeURIComponent(state.selectedId)}/${state.action}`, {
+          method: 'POST',
+          body: JSON.stringify({ credits, note, reference }),
+        });
+        state.selected.wallet = payload.wallet;
+        const cached = state.users.find((user) => user.id === state.selectedId);
+        if (cached) {
+          cached.balanceCredits = payload.wallet.balanceCredits;
+          cached.reservedCredits = payload.wallet.reservedCredits;
+          cached.availableCredits = payload.wallet.availableCredits;
+        }
+        renderSelected();
+        renderUsers();
+        await loadHistory();
+        $('credits').value = '';
+        $('reference').value = '';
+        showToast(payload.duplicate ? '该业务编号已处理，本次没有重复充值' : `${actionText}成功`, 'success');
+      } catch (error) {
+        showToast(error.message, 'error');
+      } finally {
+        button.disabled = false;
+        updateActionButton();
+      }
+    }
+
+    function setAction(action) {
+      state.action = action;
+      document.querySelectorAll('.tab').forEach((button) => {
+        button.classList.toggle('active', button.dataset.action === action);
+      });
+      updateActionButton();
+    }
+
+    function updateActionButton() {
+      const button = $('submitAction');
+      button.textContent = state.action === 'topup' ? '确认充值' : '确认补回额度';
+      button.classList.toggle('refund', state.action === 'refund');
+    }
+
+    function showToast(message, type = 'success') {
+      toast.textContent = message;
+      toast.className = `toast ${type} show`;
+      clearTimeout(showToast.timer);
+      showToast.timer = setTimeout(() => toast.classList.remove('show'), 3200);
+    }
+
+    function firstChar(value) {
+      return Array.from(String(value || '用'))[0] || '用';
+    }
+
+    function formatCredits(value) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return '0';
+      return number.toFixed(3).replace(/\.000$/, '').replace(/(\.\d*?)0+$/, '$1');
+    }
+
+    function formatDate(value) {
+      if (!value) return '-';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return new Intl.DateTimeFormat('zh-CN', {
+        timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+      }).format(date);
+    }
+
+    function typeLabel(type) {
+      return ({ topup: '充值', refund: '补回', reserve: '预留', capture: '消费', release: '释放', adjustment: '调整' })[type] || type;
+    }
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
+
+    userList.addEventListener('click', (event) => {
+      const card = event.target.closest('[data-user-id]');
+      if (card) void selectUser(card.dataset.userId);
+    });
+    search.addEventListener('input', renderUsers);
+    $('reloadUsers').addEventListener('click', () => void loadUsers());
+    $('reloadHistory').addEventListener('click', () => void loadHistory());
+    $('submitAction').addEventListener('click', () => void submitAction());
+    document.querySelectorAll('.tab').forEach((button) => button.addEventListener('click', () => setAction(button.dataset.action)));
+    $('copyUuid').addEventListener('click', async () => {
+      if (!state.selected?.id) return;
+      await navigator.clipboard.writeText(state.selected.id).catch(() => {});
+      showToast('用户UUID已复制', 'success');
+    });
+
+    void loadUsers({ keepSelection: false });
+  </script>
+</body>
+</html>
