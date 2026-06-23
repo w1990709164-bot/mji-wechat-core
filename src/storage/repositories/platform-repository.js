@@ -92,7 +92,7 @@ function mapChannelAccount(row) {
 }
 
 function normalizeSlug(value) {
-  const normalized = normalizeText(value).toLowerCase();
+  const normalized = (normalizeText(value) || "mji-wechat").toLowerCase();
   if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(normalized)) {
     throw new Error("tenant slug must use lowercase letters, numbers, and hyphens");
   }
