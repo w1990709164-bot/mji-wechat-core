@@ -3,6 +3,7 @@
 const { createPostgresClient, createPostgresPool } = require("./postgres/client");
 const { withTenantTransaction } = require("./postgres/tenant-transaction");
 const { UserRepository } = require("./repositories/user-repository");
+const { ChatRepository } = require("./repositories/chat-repository");
 const { MemoryRepository } = require("./repositories/memory-repository");
 const { WakeJobRepository } = require("./repositories/wake-job-repository");
 
@@ -12,6 +13,7 @@ function createStorage(config = {}, options = {}) {
   return {
     postgres,
     users: new UserRepository(postgres.pool),
+    chats: new ChatRepository(postgres.pool),
     memories: new MemoryRepository(postgres.pool),
     wakeJobs: new WakeJobRepository(postgres.pool),
 
@@ -31,6 +33,7 @@ function createStorage(config = {}, options = {}) {
 }
 
 module.exports = {
+  ChatRepository,
   MemoryRepository,
   UserRepository,
   WakeJobRepository,
