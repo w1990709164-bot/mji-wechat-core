@@ -3,7 +3,7 @@
 const { MjiOpenAIApp } = require("./mji-openai-app");
 const { StreamDelivery } = require("../core/stream-delivery");
 const { ThreadStateStore } = require("../core/thread-state-store");
-const { createBilledOpenAICompatibleRuntimeAdapter } = require("../adapters/runtime/openai-compatible/billed-runtime");
+const { createPersistentBilledRuntimeAdapter } = require("../adapters/runtime/openai-compatible/persistent-billed-runtime");
 
 class MjiWalletApp extends MjiOpenAIApp {
   constructor(config) {
@@ -17,9 +17,20 @@ class MjiWalletApp extends MjiOpenAIApp {
       return;
     }
 
-    this.runtimeAdapter = createBilledOpenAICompatibleRuntimeAdapter(this.config, {
+    this.runtimeAdapter = createPersistentBilledRuntimeAdapter(this.config, {
       billing: this.mjiStorage.billing,
       resolveContext: ({ bindingKey }) => this.mjiContextByBindingKey.get(bindingKey) || null,
+      loadHistory: async (context, limit) => {
+        if (typeof this.mjiStorage?.chats?.listRecentRuntimeMessages !== "function") {
+          return [];
+        }
+        return this.mjiStorage.chats.listRecentRuntimeMessages({
+          tenantId: context.tenantId,
+          userId: context.userId,
+          conversationId: context.conversationId,
+          limit,
+        });
+      },
     });
     this.threadStateStore = new ThreadStateStore();
     this.streamDelivery = new StreamDelivery({
