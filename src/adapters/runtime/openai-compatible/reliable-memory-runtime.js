@@ -11,10 +11,24 @@ function createReliableMemoryRuntimeAdapter(config, options = {}) {
     ? options.saveMemory
     : async () => null;
 
-  const base = createMemoryAwareRuntimeAdapter(config, options);
   const listeners = new Set();
   const runStateByKey = new Map();
+  const activeRunKeyByBinding = new Map();
   let eventChain = Promise.resolve();
+
+  const base = createMemoryAwareRuntimeAdapter(config, {
+    ...options,
+    saveMemory: async (context, memory) => {
+      const result = await saveMemory(context, memory);
+      const bindingKey = normalizeText(context?.bindingKey);
+      const runKey = activeRunKeyByBinding.get(bindingKey);
+      const state = runKey ? runStateByKey.get(runKey) : null;
+      if (state) {
+        state.modelSavedCount += 1;
+      }
+      return result;
+    },
+  });
 
   base.onEvent((event) => {
     eventChain = eventChain
@@ -31,7 +45,11 @@ function createReliableMemoryRuntimeAdapter(config, options = {}) {
     const runKey = buildRunKey(threadId, turnId);
     const state = runStateByKey.get(runKey) || null;
 
-    if (event?.type === "runtime.reply.completed" && state?.context) {
+    if (
+      event?.type === "runtime.reply.completed"
+      && state?.context
+      && state.modelSavedCount === 0
+    ) {
       const fallbackMemories = extractExplicitMemories(state.userText, state.context);
       let savedCount = 0;
       for (const memory of fallbackMemories) {
@@ -54,6 +72,9 @@ function createReliableMemoryRuntimeAdapter(config, options = {}) {
     }
 
     if (event?.type === "runtime.turn.completed" || event?.type === "runtime.turn.failed") {
+      if (state?.bindingKey && activeRunKeyByBinding.get(state.bindingKey) === runKey) {
+        activeRunKeyByBinding.delete(state.bindingKey);
+      }
       runStateByKey.delete(runKey);
     }
   }
@@ -80,10 +101,16 @@ function createReliableMemoryRuntimeAdapter(config, options = {}) {
       }));
       const userText = extractUserText(args.text);
       const turn = await base.sendTurn(args);
-      runStateByKey.set(buildRunKey(turn.threadId, turn.turnId), {
+      const runKey = buildRunKey(turn.threadId, turn.turnId);
+      runStateByKey.set(runKey, {
         context,
         userText,
+        bindingKey,
+        modelSavedCount: 0,
       });
+      if (bindingKey) {
+        activeRunKeyByBinding.set(bindingKey, runKey);
+      }
       return turn;
     },
   };
