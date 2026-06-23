@@ -3,7 +3,7 @@
 const { MjiOpenAIApp } = require("./mji-openai-app");
 const { StreamDelivery } = require("../core/stream-delivery");
 const { ThreadStateStore } = require("../core/thread-state-store");
-const { createPersistentBilledRuntimeAdapter } = require("../adapters/runtime/openai-compatible/persistent-billed-runtime");
+const { createReliableMemoryRuntimeAdapter } = require("../adapters/runtime/openai-compatible/reliable-memory-runtime");
 
 class MjiWalletApp extends MjiOpenAIApp {
   constructor(config) {
@@ -17,7 +17,7 @@ class MjiWalletApp extends MjiOpenAIApp {
       return;
     }
 
-    this.runtimeAdapter = createPersistentBilledRuntimeAdapter(this.config, {
+    this.runtimeAdapter = createReliableMemoryRuntimeAdapter(this.config, {
       billing: this.mjiStorage.billing,
       resolveContext: ({ bindingKey }) => this.mjiContextByBindingKey.get(bindingKey) || null,
       loadHistory: async (context, limit) => {
@@ -29,6 +29,46 @@ class MjiWalletApp extends MjiOpenAIApp {
           userId: context.userId,
           conversationId: context.conversationId,
           limit,
+        });
+      },
+      loadMemories: async (context, settings = {}) => {
+        if (typeof this.mjiStorage?.memories?.listRelevant !== "function") {
+          return [];
+        }
+        return this.mjiStorage.memories.listRelevant({
+          tenantId: context.tenantId,
+          userId: context.userId,
+          userCharacterId: context.userCharacterId,
+          minImportance: settings.minImportance,
+          limit: settings.limit,
+        });
+      },
+      markMemoriesRecalled: async (context, memoryIds) => {
+        if (typeof this.mjiStorage?.memories?.markRecalled !== "function") {
+          return [];
+        }
+        return this.mjiStorage.memories.markRecalled({
+          tenantId: context.tenantId,
+          userId: context.userId,
+          memoryIds,
+        });
+      },
+      saveMemory: async (context, memory) => {
+        if (typeof this.mjiStorage?.memories?.upsertExtracted !== "function") {
+          return null;
+        }
+        return this.mjiStorage.memories.upsertExtracted({
+          tenantId: context.tenantId,
+          userId: context.userId,
+          userCharacterId: memory.userCharacterId,
+          sourceMessageId: memory.sourceMessageId,
+          memoryType: memory.memoryType,
+          subject: memory.subject,
+          content: memory.content,
+          normalizedKey: memory.normalizedKey,
+          importance: memory.importance,
+          confidence: memory.confidence,
+          metadata: memory.metadata,
         });
       },
     });

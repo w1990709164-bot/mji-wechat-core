@@ -7,6 +7,7 @@ const { ChatRepository } = require("./repositories/chat-repository");
 const { PersistentChatRepository } = require("./repositories/persistent-chat-repository");
 const { BillingRepository } = require("./repositories/billing-repository");
 const { MemoryRepository } = require("./repositories/memory-repository");
+const { ManagedMemoryRepository } = require("./repositories/managed-memory-repository");
 const { WakeJobRepository } = require("./repositories/wake-job-repository");
 
 function createStorage(config = {}, options = {}) {
@@ -17,7 +18,7 @@ function createStorage(config = {}, options = {}) {
     users: new UserRepository(postgres.pool),
     chats: new PersistentChatRepository(postgres.pool),
     billing: new BillingRepository(postgres.pool),
-    memories: new MemoryRepository(postgres.pool),
+    memories: new ManagedMemoryRepository(postgres.pool),
     wakeJobs: new WakeJobRepository(postgres.pool),
 
     withTenant(tenantId, callback, transactionOptions = {}) {
@@ -38,8 +39,9 @@ function createStorage(config = {}, options = {}) {
 module.exports = {
   BillingRepository,
   ChatRepository,
-  PersistentChatRepository,
+  ManagedMemoryRepository,
   MemoryRepository,
+  PersistentChatRepository,
   UserRepository,
   WakeJobRepository,
   createPostgresClient,

@@ -50,7 +50,7 @@ function createOpenAICompatibleRuntimeAdapter(config) {
     }
   }
 
-  async function runTurn({ threadId, turnId, text, model }) {
+  async function runTurn({ threadId, turnId, text, model, transientSystemMessages = [] }) {
     const runKey = `${threadId}:${turnId}`;
     const controller = new AbortController();
     activeRequests.set(runKey, controller);
@@ -66,6 +66,9 @@ function createOpenAICompatibleRuntimeAdapter(config) {
       const instructions = loadWechatInstructions(config);
       if (instructions) {
         messages.push({ role: "system", content: instructions });
+      }
+      for (const systemText of normalizeSystemMessages(transientSystemMessages)) {
+        messages.push({ role: "system", content: systemText });
       }
       messages.push(...history.slice(-historyLimit));
       messages.push({ role: "user", content: String(text || "").trim() });
@@ -91,10 +94,11 @@ function createOpenAICompatibleRuntimeAdapter(config) {
         throw new Error(extractApiError(payload, payloadText, response.status));
       }
 
-      const reply = extractAssistantReply(payload);
-      if (!reply) {
+      const rawReply = extractAssistantReply(payload);
+      if (!rawReply) {
         throw new Error("模型接口返回成功，但没有回复内容");
       }
+      const reply = stripPrivateReplyBlocks(rawReply) || "嗯，我记住了。";
 
       histories.set(threadId, [
         ...history,
@@ -126,6 +130,7 @@ function createOpenAICompatibleRuntimeAdapter(config) {
           turnId,
           itemId: `reply-${turnId}`,
           text: reply,
+          rawText: rawReply,
         },
       });
       emit({
@@ -209,12 +214,14 @@ function createOpenAICompatibleRuntimeAdapter(config) {
         modelProvider: providerName,
       });
       const turnId = `turn-${crypto.randomUUID()}`;
+      const transientSystemMessages = normalizeSystemMessages(metadata?.systemMessages);
       setImmediate(() => {
         void runTurn({
           threadId,
           turnId,
           text,
           model: readText(model) || configuredModel,
+          transientSystemMessages,
         });
       });
       return { threadId, turnId };
@@ -253,6 +260,7 @@ function createOpenAICompatibleRuntimeAdapter(config) {
           text: buildInstructionRefreshText(config),
           model: readText(model) || configuredModel,
           workspaceRoot,
+          transientSystemMessages: [],
         });
       });
       return { threadId, turnId };
@@ -307,6 +315,23 @@ function extractAssistantReply(payload) {
       .trim();
   }
   return "";
+}
+
+function stripPrivateReplyBlocks(value) {
+  return String(value || "")
+    .replace(/<mji_memory_updates>[\s\S]*?<\/mji_memory_updates>/gi, "")
+    .trim();
+}
+
+function normalizeSystemMessages(values) {
+  if (!Array.isArray(values)) return [];
+  const result = [];
+  for (const value of values) {
+    const text = readText(typeof value === "string" ? value : value?.content);
+    if (!text) continue;
+    result.push(text);
+  }
+  return result.slice(0, 20);
 }
 
 function extractApiError(payload, rawText, status) {
