@@ -1,3 +1,3 @@
 "use strict";
 
-module.exports = require("./mji-openai-index");
+module.exports = require("./mji-wallet-index");
