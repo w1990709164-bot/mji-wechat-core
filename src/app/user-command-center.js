@@ -13,6 +13,12 @@ const COMMAND_ALIASES = new Map([
   ["账单", "history"],
   ["流水", "history"],
   ["余额记录", "history"],
+  ["套餐", "recharge_packages"],
+  ["充值套餐", "recharge_packages"],
+  ["充值", "recharge_packages"],
+  ["充值记录", "recharge_history"],
+  ["我的订单", "recharge_history"],
+  ["充值订单", "recharge_history"],
   ["查看人设", "persona"],
   ["我的人设", "persona"],
   ["查看记忆", "memories"],
@@ -24,8 +30,8 @@ const COMMAND_ALIASES = new Map([
 ]);
 
 async function handleUserCommandMessage(options = {}) {
-  const text = normalizeCommand(options.text);
-  const command = COMMAND_ALIASES.get(text) || null;
+  const parsed = parseCommand(options.text);
+  const command = parsed.command;
   const profile = asObject(options.profile);
 
   if (!command && profile.servicePaused === true) {
@@ -64,6 +70,48 @@ async function handleUserCommandMessage(options = {}) {
         limit: 10,
       });
       await options.sendText(formatTransactions(transactions));
+      break;
+    }
+
+    case "recharge_packages": {
+      const packages = await storage.recharge.listActivePackages({
+        tenantId: context.tenantId,
+      });
+      await options.sendText(formatRechargePackages(packages));
+      break;
+    }
+
+    case "recharge_create": {
+      const packages = await storage.recharge.listActivePackages({
+        tenantId: context.tenantId,
+      });
+      const selected = resolveSelectedPackage(packages, parsed.argument);
+      if (!selected) {
+        await options.sendText(
+          `${formatRechargePackages(packages)}\n\n没有找到你选择的套餐，请发送例如「充值 1」。`
+        );
+        break;
+      }
+      const created = await storage.recharge.createOrder({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        packageId: selected.id,
+        metadata: {
+          source: "weixin_command",
+          providerUserId: options.senderId || context.senderId || "",
+        },
+      });
+      await options.sendText(formatCreatedRechargeOrder(created.order, selected));
+      break;
+    }
+
+    case "recharge_history": {
+      const orders = await storage.recharge.listUserOrders({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        limit: 10,
+      });
+      await options.sendText(formatRechargeOrders(orders));
       break;
     }
 
@@ -121,6 +169,28 @@ async function handleUserCommandMessage(options = {}) {
   return { handled: true, command, blockedByPause: false };
 }
 
+function parseCommand(value) {
+  const raw = normalizeText(value)
+    .replace(/^[\/／]+/, "")
+    .replace(/[。！!？?，,；;：:]+$/g, "")
+    .trim();
+  const compact = raw.replace(/\s+/g, "");
+
+  const rechargeMatch = raw.match(/^充值\s*([0-9]+|[a-zA-Z0-9_-]+)$/i);
+  if (rechargeMatch && rechargeMatch[1]) {
+    return { command: "recharge_create", argument: rechargeMatch[1] };
+  }
+  const compactRechargeMatch = compact.match(/^充值([0-9]+|[a-zA-Z0-9_-]+)$/i);
+  if (compactRechargeMatch && compactRechargeMatch[1]) {
+    return { command: "recharge_create", argument: compactRechargeMatch[1] };
+  }
+
+  return {
+    command: COMMAND_ALIASES.get(compact) || null,
+    argument: "",
+  };
+}
+
 async function listUserTransactions({ billing, tenantId, userId, limit = 10 }) {
   if (!billing?.pool) return [];
   const safeLimit = Math.max(1, Math.min(20, Number.parseInt(String(limit), 10) || 10));
@@ -161,6 +231,9 @@ function buildHelpText(profile) {
     "可发送以下命令：",
     "• 余额 —— 查看当前可用额度",
     "• 消费记录 —— 查看最近充值和消费",
+    "• 充值 / 套餐 —— 查看充值套餐",
+    "• 充值 1 —— 选择第 1 个套餐并生成订单",
+    "• 充值记录 —— 查看订单状态",
     "• 设置人设 —— 进入人设设置向导",
     "• 查看人设 —— 查看当前人设摘要",
     "• 查看记忆 —— 查看最近的重要记忆",
@@ -183,6 +256,7 @@ function formatWallet(wallet) {
     `当前可用：${formatCredits(wallet.availableCredits)}`,
     "",
     "正常回复成功后每次扣除 10 额度；调用失败会自动释放预留额度。",
+    "余额不足时发送「充值」查看套餐。",
   ].join("\n");
 }
 
@@ -199,6 +273,60 @@ function formatTransactions(transactions) {
     lines.push(
       `${index + 1}. ${formatDate(item.occurredAt)}  ${typeName} ${sign}${formatCredits(item.amountCredits)}`,
       `   余额：${formatCredits(item.balanceAfter)}${item.description ? `｜${item.description}` : ""}`
+    );
+  });
+  return lines.join("\n");
+}
+
+function formatRechargePackages(packages) {
+  if (!Array.isArray(packages) || packages.length === 0) {
+    return "目前没有启用中的充值套餐，请联系管理员。";
+  }
+  const lines = ["M叽 · 充值套餐", ""];
+  packages.forEach((item, index) => {
+    lines.push(
+      `${index + 1}. ${item.name}｜¥${formatYuan(item.priceYuan)}｜${formatCredits(item.credits)} 额度${item.description ? `\n   ${item.description}` : ""}`
+    );
+  });
+  lines.push("", "选择方式：发送「充值 1」「充值 2」等生成订单。", "订单生成后请按管理员提供的收款方式付款，并备注订单号。");
+  return lines.join("\n");
+}
+
+function resolveSelectedPackage(packages, argument) {
+  if (!Array.isArray(packages) || packages.length === 0) return null;
+  const normalized = normalizeText(argument).toLowerCase();
+  const index = Number.parseInt(normalized, 10);
+  if (/^[0-9]+$/.test(normalized) && index >= 1 && index <= packages.length) {
+    return packages[index - 1];
+  }
+  return packages.find((item) => normalizeText(item.code).toLowerCase() === normalized) || null;
+}
+
+function formatCreatedRechargeOrder(order, packageItem) {
+  return [
+    "M叽 · 充值订单已生成",
+    "",
+    `订单号：${order.orderNo}`,
+    `套餐：${packageItem.name}`,
+    `应付金额：¥${formatYuan(order.amountYuan)}`,
+    `到账额度：${formatCredits(order.credits)}`,
+    `当前状态：待管理员确认`,
+    "",
+    "付款时请务必备注完整订单号。管理员确认收款后，额度会自动到账。",
+    "可发送「充值记录」查看订单状态。",
+  ].join("\n");
+}
+
+function formatRechargeOrders(orders) {
+  if (!Array.isArray(orders) || orders.length === 0) {
+    return "目前还没有充值订单。发送「充值」查看套餐。";
+  }
+  const lines = ["M叽 · 最近充值订单", ""];
+  orders.forEach((order, index) => {
+    lines.push(
+      `${index + 1}. ${order.orderNo}`,
+      `   ${order.packageName || "充值套餐"}｜¥${formatYuan(order.amountYuan)}｜${formatCredits(order.credits)} 额度`,
+      `   状态：${orderStatusName(order.status)}｜${formatDate(order.createdAt)}`
     );
   });
   return lines.join("\n");
@@ -259,6 +387,14 @@ function transactionTypeName(type) {
   }[type] || "额度变动";
 }
 
+function orderStatusName(status) {
+  return {
+    pending: "待确认",
+    paid: "已到账",
+    cancelled: "已取消",
+  }[normalizeText(status).toLowerCase()] || "未知";
+}
+
 function relationshipStageName(stage) {
   return {
     stranger: "陌生",
@@ -289,16 +425,14 @@ function memoryTypeName(type) {
   }[normalizeText(type).toLowerCase()] || "记忆";
 }
 
-function normalizeCommand(value) {
-  return normalizeText(value)
-    .replace(/^[\/／]+/, "")
-    .replace(/[。！!？?，,；;：:]+$/g, "")
-    .replace(/\s+/g, "");
-}
-
 function formatCredits(value) {
   const number = toCredits(value);
   return Number.isInteger(number) ? String(number) : number.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatYuan(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : "0.00";
 }
 
 function toCredits(value) {
