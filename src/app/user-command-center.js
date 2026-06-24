@@ -1,6 +1,10 @@
 "use strict";
 
 const { withTenantTransaction } = require("../storage/postgres/tenant-transaction");
+const {
+  DEFAULT_DAILY_PROACTIVE_LIMIT,
+  MAX_USER_DAILY_PROACTIVE_LIMIT,
+} = require("../storage/repositories/wake-job-repository");
 
 const COMMAND_ALIASES = new Map([
   ["帮助", "help"],
@@ -23,6 +27,14 @@ const COMMAND_ALIASES = new Map([
   ["我的人设", "persona"],
   ["查看记忆", "memories"],
   ["我的记忆", "memories"],
+  ["主动设置", "proactive_settings"],
+  ["主动消息", "proactive_settings"],
+  ["主动频率", "proactive_settings"],
+  ["主动上限", "proactive_settings"],
+  ["关闭主动", "proactive_disable"],
+  ["关闭主动消息", "proactive_disable"],
+  ["开启主动", "proactive_enable"],
+  ["开启主动消息", "proactive_enable"],
   ["暂停服务", "pause"],
   ["暂停聊天", "pause"],
   ["恢复服务", "resume"],
@@ -131,6 +143,60 @@ async function handleUserCommandMessage(options = {}) {
       break;
     }
 
+    case "proactive_settings": {
+      const preference = await storage.wakeJobs.getPreference({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        userCharacterId: context.userCharacterId,
+      });
+      await options.sendText(formatProactivePreference(preference));
+      break;
+    }
+
+    case "proactive_limit": {
+      const preference = await storage.wakeJobs.setDailyLimit({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        userCharacterId: context.userCharacterId,
+        maxMessagesPerDay: parsed.argument,
+        source: "weixin_user_command",
+      });
+      await options.sendText(formatProactiveLimitUpdated(preference));
+      break;
+    }
+
+    case "proactive_disable": {
+      const preference = await storage.wakeJobs.setDailyLimit({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        userCharacterId: context.userCharacterId,
+        maxMessagesPerDay: 0,
+        source: "weixin_user_command",
+      });
+      await options.sendText(formatProactiveLimitUpdated(preference));
+      break;
+    }
+
+    case "proactive_enable": {
+      const current = await storage.wakeJobs.getPreference({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        userCharacterId: context.userCharacterId,
+      });
+      const limit = Number(current?.maxMessagesPerDay) > 0
+        ? Number(current.maxMessagesPerDay)
+        : DEFAULT_DAILY_PROACTIVE_LIMIT;
+      const preference = await storage.wakeJobs.setDailyLimit({
+        tenantId: context.tenantId,
+        userId: context.userId,
+        userCharacterId: context.userCharacterId,
+        maxMessagesPerDay: limit,
+        source: "weixin_user_command",
+      });
+      await options.sendText(formatProactiveLimitUpdated(preference));
+      break;
+    }
+
     case "pause": {
       if (profile.servicePaused === true) {
         await options.sendText("服务已经处于暂停状态。发送「恢复服务」即可继续聊天。");
@@ -185,6 +251,17 @@ function parseCommand(value) {
     return { command: "recharge_create", argument: compactRechargeMatch[1] };
   }
 
+  const proactiveLimitMatch = compact.match(
+    /^(?:主动消息|主动上限|主动次数|主动频率|每天主动|主动设置)(?:每天)?([0-9]+)次?$/
+  );
+  if (proactiveLimitMatch && proactiveLimitMatch[1]) {
+    const limit = Number.parseInt(proactiveLimitMatch[1], 10);
+    if (limit >= 0 && limit <= MAX_USER_DAILY_PROACTIVE_LIMIT) {
+      return { command: "proactive_limit", argument: limit };
+    }
+    return { command: "proactive_settings", argument: "invalid_limit" };
+  }
+
   return {
     command: COMMAND_ALIASES.get(compact) || null,
     argument: "",
@@ -237,6 +314,9 @@ function buildHelpText(profile) {
     "• 设置人设 —— 进入人设设置向导",
     "• 查看人设 —— 查看当前人设摘要",
     "• 查看记忆 —— 查看最近的重要记忆",
+    "• 主动消息 —— 查看主动消息设置",
+    `• 主动消息 0-${MAX_USER_DAILY_PROACTIVE_LIMIT} —— 设置每天主动消息上限`,
+    "• 关闭主动 / 开启主动 —— 快速关闭或开启主动消息",
     "• 暂停服务 —— 暂停普通聊天",
     "• 恢复服务 —— 恢复普通聊天",
     "",
@@ -388,6 +468,43 @@ function formatMemories(memories) {
   return lines.join("\n");
 }
 
+function formatProactivePreference(preference) {
+  if (!preference) {
+    return "主动消息设置暂时不可用，请稍后再试。";
+  }
+  const limit = Number(preference.maxMessagesPerDay) || 0;
+  const enabled = Boolean(preference.enabled) && limit > 0;
+  return [
+    "M叽 · 主动消息设置",
+    "",
+    `当前状态：${enabled ? "已开启" : "已关闭"}`,
+    `每天最多：${limit} 次`,
+    `免打扰时间：${formatClock(preference.quietStart)}—${formatClock(preference.quietEnd)}`,
+    `两次主动消息至少间隔：${Number(preference.minimumGapMinutes) || 60} 分钟`,
+    "",
+    `发送「主动消息 0-${MAX_USER_DAILY_PROACTIVE_LIMIT}」可修改每天上限。`,
+    "设置为 0 等于彻底关闭主动消息。",
+    "主动消息仍受全局预算、免打扰和冷却规则限制，因此实际次数可能少于上限。",
+  ].join("\n");
+}
+
+function formatProactiveLimitUpdated(preference) {
+  const limit = Number(preference?.maxMessagesPerDay) || 0;
+  if (limit <= 0 || preference?.enabled === false) {
+    return [
+      "已关闭主动消息。",
+      "",
+      "M叽不会再主动调用模型联系你。发送「开启主动」或「主动消息 1」可以重新开启。",
+    ].join("\n");
+  }
+  return [
+    "主动消息设置已保存。",
+    "",
+    `每天最多：${limit} 次`,
+    "这只是上限，不代表每天一定会发满。系统仍会先进行本地规则筛选，只有真的适合联系你时才会调用模型。",
+  ].join("\n");
+}
+
 function transactionTypeName(type) {
   return {
     topup: "充值",
@@ -467,6 +584,12 @@ function formatDate(value) {
   }).format(date);
 }
 
+function formatClock(value) {
+  const text = normalizeText(value);
+  if (!text) return "--:--";
+  return text.slice(0, 5);
+}
+
 function truncate(value, maximum) {
   const text = normalizeText(value);
   return text.length > maximum ? `${text.slice(0, maximum - 1)}…` : text;
@@ -480,4 +603,7 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-module.exports = { handleUserCommandMessage };
+module.exports = {
+  handleUserCommandMessage,
+  parseCommand,
+};

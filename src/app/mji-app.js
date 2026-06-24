@@ -20,6 +20,11 @@ class MjiApp extends CyberbossApp {
       await this.initializeMjiStorage();
       return await super.start();
     } finally {
+      if (typeof this.beforeMjiStorageClose === "function") {
+        await this.beforeMjiStorageClose().catch((error) => {
+          console.error(`[mji] storage shutdown hook failed: ${formatError(error)}`);
+        });
+      }
       if (this.mjiStorage) {
         await this.mjiStorage.close().catch((error) => {
           console.error(`[mji] database close failed: ${formatError(error)}`);

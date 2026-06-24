@@ -1,7 +1,10 @@
 "use strict";
 
+const HANDLED_POOLS = new WeakSet();
+
 function createPostgresPool(config = {}, options = {}) {
   if (options.pool) {
+    attachPoolErrorHandler(options.pool);
     return options.pool;
   }
 
@@ -15,14 +18,18 @@ function createPostgresPool(config = {}, options = {}) {
   }
 
   const Pool = options.Pool || loadPoolConstructor();
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     max: positiveInteger(config.databaseMaxConnections, 10),
     idleTimeoutMillis: positiveInteger(config.databaseIdleTimeoutMs, 30_000),
     connectionTimeoutMillis: positiveInteger(config.databaseConnectionTimeoutMs, 10_000),
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
     ssl: resolveSsl(config.databaseSslMode, connectionString),
     application_name: normalizeText(config.databaseApplicationName) || "mji-wechat-core",
   });
+  attachPoolErrorHandler(pool);
+  return pool;
 }
 
 function createPostgresClient(config = {}, options = {}) {
@@ -55,13 +62,27 @@ function createPostgresClient(config = {}, options = {}) {
   };
 }
 
+function attachPoolErrorHandler(pool) {
+  if (!pool || typeof pool !== "object" || typeof pool.on !== "function" || HANDLED_POOLS.has(pool)) {
+    return pool;
+  }
+  HANDLED_POOLS.add(pool);
+  pool.on("error", (error) => {
+    const message = formatError(error);
+    console.error(
+      `[mji] PostgreSQL idle connection dropped; the pool removed the bad connection and will reconnect automatically: ${message}`
+    );
+  });
+  return pool;
+}
+
 function loadPoolConstructor() {
   try {
     return require("pg").Pool;
   } catch (error) {
     const cause = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `PostgreSQL driver is missing. Install it with \"npm install pg\". Cause: ${cause}`
+      `PostgreSQL driver is missing. Install it with "npm install pg". Cause: ${cause}`
     );
   }
 }
@@ -89,6 +110,10 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function formatError(error) {
+  return error instanceof Error ? error.message : String(error || "unknown error");
+}
+
 function assertOpen(closed) {
   if (closed) {
     throw new Error("PostgreSQL client has already been closed.");
@@ -96,6 +121,7 @@ function assertOpen(closed) {
 }
 
 module.exports = {
+  attachPoolErrorHandler,
   createPostgresClient,
   createPostgresPool,
   resolveSsl,

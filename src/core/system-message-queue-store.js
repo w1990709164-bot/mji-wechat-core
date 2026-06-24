@@ -84,6 +84,8 @@ function normalizeSystemMessage(message) {
   const senderId = normalizeText(message.senderId);
   const workspaceRoot = normalizeText(message.workspaceRoot);
   const text = normalizeText(message.text);
+  const inferredMode = id.startsWith("proactive:") ? "proactive" : "system";
+  const mode = normalizeMode(message.mode || inferredMode);
   const createdAt = normalizeIsoTime(message.createdAt);
 
   if (!id || !accountId || !senderId || !workspaceRoot || !text) {
@@ -96,8 +98,14 @@ function normalizeSystemMessage(message) {
     senderId,
     workspaceRoot,
     text,
+    mode,
     createdAt: createdAt || new Date().toISOString(),
   };
+}
+
+function normalizeMode(value) {
+  const normalized = normalizeText(value).toLowerCase();
+  return normalized === "proactive" ? "proactive" : "system";
 }
 
 function normalizeIsoTime(value) {

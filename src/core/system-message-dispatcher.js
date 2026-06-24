@@ -22,15 +22,18 @@ class SystemMessageDispatcher {
   }
 
   buildPreparedMessage(message, contextToken = "") {
+    const mode = normalizeMode(message?.mode);
     return {
       provider: "system",
       workspaceId: this.config.workspaceId,
       accountId: this.accountId,
       chatId: message.senderId,
-      threadKey: `system:${message.senderId}`,
+      threadKey: `${mode}:${message.senderId}`,
       senderId: message.senderId,
       messageId: message.id,
-      text: buildSystemInboundText(message?.text, message?.createdAt),
+      text: mode === "proactive"
+        ? buildProactiveInboundText(message?.text, message?.createdAt)
+        : buildSystemInboundText(message?.text, message?.createdAt),
       attachments: [],
       command: "message",
       contextToken,
@@ -57,6 +60,29 @@ function buildSystemInboundText(text, createdAt = "") {
     sections.push("", "Trigger:", body);
   }
   return sections.join("\n").trim();
+}
+
+function buildProactiveInboundText(text, createdAt = "") {
+  const body = normalizeText(text);
+  const localTime = formatSystemLocalTime(createdAt);
+  const sections = [
+    ...(localTime ? [`[${localTime}]`, ""] : []),
+    "PROACTIVE DELIVERY MODE: the local scheduler already decided that this is an appropriate time to contact the user.",
+    "Do not make a second send-or-silence decision. The silent action is invalid in this mode.",
+    "Generate exactly one short, natural WeChat message in the configured character voice.",
+    "Return exactly one JSON object:",
+    "{\"action\":\"send_message\",\"message\":\"<one short natural WeChat message>\"}",
+    "The message field must not be empty.",
+    "No markdown fences. No reasoning. No text outside the JSON.",
+  ];
+  if (body) {
+    sections.push("", "Proactive context:", body);
+  }
+  return sections.join("\n").trim();
+}
+
+function normalizeMode(value) {
+  return normalizeText(value).toLowerCase() === "proactive" ? "proactive" : "system";
 }
 
 function formatSystemLocalTime(value) {
@@ -91,4 +117,7 @@ function normalizeText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-module.exports = { SystemMessageDispatcher };
+module.exports = {
+  SystemMessageDispatcher,
+  buildProactiveInboundText,
+};
