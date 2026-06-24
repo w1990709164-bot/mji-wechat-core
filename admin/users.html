@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="mji-admin-token" content="__ADMIN_TOKEN__" />
+  <title>M叽用户管理</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090b10;--panel:#121620;--panel2:#171c28;--line:rgba(255,255,255,.09);--text:#f7f8fb;--muted:#9aa3b5;--accent:#8b7cff;--accent2:#b5adff;--ok:#48d59a;--warn:#ffc568;--danger:#ff6b7a;--cyan:#68d8ff;font-family:Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{background:radial-gradient(circle at 10% 0%,rgba(139,124,255,.17),transparent 28%),radial-gradient(circle at 90% 5%,rgba(72,213,154,.09),transparent 24%),var(--bg)}button,input,select{font:inherit}button{cursor:pointer}.shell{max-width:1680px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:18px}.brand{display:flex;gap:13px;align-items:center}.logo{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#594fd0);font-weight:900}.brand h1{margin:0;font-size:24px}.brand p{margin:5px 0 0;color:var(--muted);font-size:12px}.back{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;padding:10px 14px;text-decoration:none}.overview{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:16px}.card,.panel{background:rgba(18,22,32,.9);border:1px solid var(--line);box-shadow:0 18px 55px rgba(0,0,0,.25)}.card{border-radius:18px;padding:16px}.card .label{color:var(--muted);font-size:11px}.card .value{margin-top:8px;font-size:25px;font-weight:900}.value.ok{color:var(--ok)}.value.warn{color:var(--warn)}.value.danger{color:var(--danger)}.settings{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding:13px 15px;border-radius:16px}.settings strong{font-size:13px}.settings span{color:var(--muted);font-size:11px;margin-right:auto}.settings input{width:130px}.toolbar{display:grid;grid-template-columns:minmax(260px,1fr) 190px 150px auto;gap:10px;margin-bottom:14px}.input,.select{width:100%;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:12px;padding:11px 12px;outline:none}.input:focus,.select:focus{border-color:rgba(139,124,255,.65);box-shadow:0 0 0 3px rgba(139,124,255,.12)}.btn{border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:12px;padding:10px 14px;font-weight:800}.btn:hover{border-color:rgba(139,124,255,.55)}.btn.primary{border:0;background:linear-gradient(135deg,var(--accent),#6257d5)}.btn.ok{border-color:rgba(72,213,154,.38);color:var(--ok);background:rgba(72,213,154,.08)}.btn.warn{border-color:rgba(255,197,104,.38);color:var(--warn);background:rgba(255,197,104,.08)}.btn.danger{border-color:rgba(255,107,122,.38);color:var(--danger);background:rgba(255,107,122,.08)}.btn:disabled{opacity:.45;cursor:not-allowed}.layout{display:grid;grid-template-columns:minmax(620px,1.25fr) minmax(480px,.9fr);gap:16px;align-items:start}.panel{border-radius:20px;overflow:hidden}.panel-head{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line)}.panel-head h2,.panel-head h3{margin:0;font-size:16px}.muted{color:var(--muted);font-size:11px}.table-wrap{overflow:auto;max-height:680px}table{width:100%;border-collapse:collapse;min-width:830px}th,td{text-align:left;padding:12px 13px;border-bottom:1px solid var(--line);font-size:12px}th{position:sticky;top:0;background:#151a25;color:var(--muted);z-index:1}.user-row{cursor:pointer}.user-row:hover{background:rgba(255,255,255,.035)}.user-row.active{background:rgba(139,124,255,.13)}.name{font-weight:800}.sub{display:block;margin-top:4px;color:var(--muted);font-size:10px;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800}.status.active{color:var(--ok);background:rgba(72,213,154,.11)}.status.paused{color:var(--warn);background:rgba(255,197,104,.11)}.status.blocked{color:var(--danger);background:rgba(255,107,122,.11)}.badge{display:inline-flex;min-width:22px;justify-content:center;border-radius:999px;padding:3px 7px;color:var(--warn);background:rgba(255,197,104,.11);font-size:10px}.empty{padding:50px 20px;text-align:center;color:var(--muted)}.detail{padding:18px}.profile{display:flex;gap:13px;align-items:center;margin-bottom:14px}.avatar{width:52px;height:52px;border-radius:17px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#5b50d2);font-size:20px;font-weight:900}.profile h3{margin:0;font-size:19px}.profile p{margin:5px 0 0;color:var(--muted);font-size:11px;word-break:break-all}.status-actions{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;margin-bottom:14px}.metric{padding:12px;border-radius:14px;background:var(--panel2);border:1px solid var(--line)}.metric .k{font-size:10px;color:var(--muted)}.metric .v{margin-top:6px;font-size:18px;font-weight:900}.section{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}.section h4{margin:0 0 10px;font-size:13px}.form-grid{display:grid;grid-template-columns:120px 1fr;gap:8px}.form-grid .wide{grid-column:1/-1}.mini-table{overflow:auto;border:1px solid var(--line);border-radius:12px;max-height:220px}.mini-table table{min-width:620px}.direction{display:grid;grid-template-columns:1fr 1fr;gap:8px}.direction .active{border-color:rgba(139,124,255,.65);background:rgba(139,124,255,.14)}.toast{position:fixed;right:22px;bottom:22px;max-width:420px;padding:13px 15px;background:#202632;border:1px solid var(--line);border-radius:13px;box-shadow:0 18px 50px rgba(0,0,0,.35);opacity:0;transform:translateY(18px);pointer-events:none;transition:.2s;z-index:10}.toast.show{opacity:1;transform:none}.toast.error{border-color:rgba(255,107,122,.45)}
+    @media(max-width:1180px){.overview{grid-template-columns:repeat(3,1fr)}.layout{grid-template-columns:1fr}.table-wrap{max-height:520px}}@media(max-width:720px){.shell{padding:14px}.top{flex-direction:column}.overview{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr 1fr}.toolbar .search{grid-column:1/-1}.settings{align-items:flex-start;flex-wrap:wrap}.settings span{width:100%}.metrics{grid-template-columns:1fr 1fr}.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:auto}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="brand"><div class="logo">M叽</div><div><h1>付费用户管理</h1><p>__TENANT_NAME__ · 用户、额度、状态与运营统计</p></div></div>
+      <a class="back" href="http://127.0.0.1:8787/" target="_blank" rel="noreferrer">返回管理员总后台</a>
+    </header>
+
+    <section class="overview">
+      <div class="card"><div class="label">总用户数</div><div id="totalUsers" class="value">-</div></div>
+      <div class="card"><div class="label">今日活跃</div><div id="activeToday" class="value ok">-</div></div>
+      <div class="card"><div class="label">今日消耗额度</div><div id="spentToday" class="value">-</div></div>
+      <div class="card"><div class="label">今日充值金额</div><div id="paidToday" class="value ok">-</div></div>
+      <div class="card"><div class="label">待确认订单</div><div id="pendingOrders" class="value warn">-</div></div>
+    </section>
+
+    <section class="settings panel">
+      <strong>新用户试用额度</strong><span>保存后约 30 秒内生效；设为 0 表示不给试用额度。</span>
+      <input id="trialCredits" class="input" inputmode="decimal" placeholder="例如 100" />
+      <button id="saveTrial" class="btn primary">保存设置</button>
+    </section>
+
+    <section class="toolbar">
+      <input id="search" class="input search" placeholder="搜索昵称、微信ID、用户UUID" autocomplete="off" />
+      <select id="filter" class="select">
+        <option value="all">全部用户</option>
+        <option value="low_balance">余额不足</option>
+        <option value="pending">有待确认订单</option>
+        <option value="paused">已暂停</option>
+        <option value="blocked">已封禁</option>
+      </select>
+      <input id="lowBalance" class="input" inputmode="decimal" value="50" title="余额不足阈值" />
+      <button id="reload" class="btn">刷新</button>
+    </section>
+
+    <section class="layout">
+      <div class="panel">
+        <div class="panel-head"><div><h2>用户列表</h2><div id="userCount" class="muted">正在加载……</div></div></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>用户</th><th>状态</th><th>可用额度</th><th>累计消费</th><th>充值金额</th><th>待确认</th><th>最后活跃</th></tr></thead>
+            <tbody id="userBody"></tbody>
+          </table>
+          <div id="userEmpty" class="empty" style="display:none">没有匹配的用户</div>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div id="detailEmpty" class="empty">请选择一位用户查看详情</div>
+        <div id="detail" class="detail" style="display:none">
+          <div class="profile"><div id="avatar" class="avatar">用</div><div><h3 id="name">微信用户</h3><p id="identity"></p><p id="uuid"></p></div></div>
+          <div class="status-actions">
+            <button class="btn ok" data-status="active">恢复/解封</button>
+            <button class="btn warn" data-status="paused">暂停服务</button>
+            <button class="btn danger" data-status="blocked">封禁用户</button>
+          </div>
+          <div class="metrics">
+            <div class="metric"><div class="k">账户余额</div><div id="balance" class="v">0</div></div>
+            <div class="metric"><div class="k">可用额度</div><div id="available" class="v">0</div></div>
+            <div class="metric"><div class="k">累计消费</div><div id="totalSpent" class="v">0</div></div>
+            <div class="metric"><div class="k">累计充值</div><div id="paidYuan" class="v">¥0</div></div>
+            <div class="metric"><div class="k">长期记忆</div><div id="memoryCount" class="v">0</div></div>
+            <div class="metric"><div class="k">消息数量</div><div id="messageCount" class="v">0</div></div>
+          </div>
+
+          <section class="section"><h4>人设摘要</h4><div id="personaText" class="muted">暂无人设</div></section>
+
+          <section class="section">
+            <h4>手动加减额度</h4>
+            <div class="direction"><button class="btn active" data-direction="add">增加额度</button><button class="btn" data-direction="subtract">扣减额度</button></div>
+            <div class="form-grid" style="margin-top:9px">
+              <input id="credits" class="input" inputmode="decimal" placeholder="额度" />
+              <input id="note" class="input" placeholder="备注，例如：人工补偿" />
+              <input id="reference" class="input wide" placeholder="业务编号（可不填；同编号不会重复处理）" />
+              <button id="submitCredits" class="btn primary wide">确认增加额度</button>
+            </div>
+          </section>
+
+          <section class="section"><h4>最近充值订单</h4><div class="mini-table"><table><thead><tr><th>订单号</th><th>套餐</th><th>金额</th><th>额度</th><th>状态</th><th>时间</th></tr></thead><tbody id="ordersBody"></tbody></table><div id="ordersEmpty" class="empty">暂无订单</div></div></section>
+          <section class="section"><h4>最近额度流水</h4><div class="mini-table"><table><thead><tr><th>类型</th><th>额度</th><th>余额</th><th>备注</th><th>时间</th></tr></thead><tbody id="transactionsBody"></tbody></table><div id="transactionsEmpty" class="empty">暂无流水</div></div></section>
+          <section class="section"><h4>管理审计</h4><div id="auditList" class="muted">暂无管理操作</div></section>
+        </div>
+      </aside>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const token=document.querySelector('meta[name="mji-admin-token"]').content;
+    const state={users:[],selectedId:'',detail:null,direction:'add'};
+    const $=id=>document.getElementById(id);
+
+    async function api(path,options={}){
+      const response=await fetch(path,{...options,headers:{'Content-Type':'application/json','X-MJI-Admin-Token':token,...(options.headers||{})}});
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok||payload.ok===false)throw new Error(payload.error||`请求失败（${response.status}）`);
+      return payload;
+    }
+
+    async function loadAll(){await Promise.all([loadOverview(),loadUsers()]);}
+    async function loadOverview(){
+      const payload=await api('/api/overview');const o=payload.overview||{};
+      $('totalUsers').textContent=o.totalUsers??0;$('activeToday').textContent=o.activeToday??0;
+      $('spentToday').textContent=formatCredits(o.spentToday);$('paidToday').textContent=`¥${formatMoney(o.paidYuanToday)}`;
+      $('pendingOrders').textContent=o.pendingOrders??0;$('trialCredits').value=formatCredits(o.trialCredits);
+    }
+
+    async function loadUsers(){
+      const params=new URLSearchParams({search:$('search').value.trim(),filter:$('filter').value,lowBalance:$('lowBalance').value||'50',limit:'500'});
+      $('userCount').textContent='正在加载……';
+      const payload=await api(`/api/users?${params}`);state.users=payload.users||[];
+      $('userCount').textContent=`共 ${state.users.length} 位用户`;
+      if(state.selectedId&&!state.users.some(u=>u.id===state.selectedId))state.selectedId='';
+      renderUsers();
+      if(state.selectedId)await selectUser(state.selectedId,false);
+    }
+
+    function renderUsers(){
+      const body=$('userBody'),empty=$('userEmpty');
+      if(!state.users.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';
+      body.innerHTML=state.users.map(u=>{const n=u.nickname||u.displayName||'微信用户';return `<tr class="user-row ${u.id===state.selectedId?'active':''}" data-id="${esc(u.id)}"><td><span class="name">${esc(n)}</span><span class="sub">${esc(u.providerUserId||u.id)}</span></td><td><span class="status ${esc(u.status)}">${esc(statusLabel(u.status))}</span></td><td>${formatCredits(u.availableCredits)}</td><td>${formatCredits(u.totalSpent)}</td><td>¥${formatMoney(u.paidYuan)}</td><td>${u.pendingOrderCount?`<span class="badge">${u.pendingOrderCount}</span>`:'0'}</td><td>${esc(formatDate(u.lastSeenAt))}</td></tr>`}).join('');
+      body.querySelectorAll('[data-id]').forEach(row=>row.addEventListener('click',()=>selectUser(row.dataset.id)));
+    }
+
+    async function selectUser(id,rerender=true){state.selectedId=id;if(rerender)renderUsers();const payload=await api(`/api/users/${encodeURIComponent(id)}/detail`);state.detail=payload.detail;renderDetail()}
+    function renderDetail(){
+      const d=state.detail;if(!d){$('detail').style.display='none';$('detailEmpty').style.display='block';return}
+      $('detailEmpty').style.display='none';$('detail').style.display='block';const u=d.user||{},w=d.wallet||{},m=d.metrics||{},p=d.persona||{};const n=u.nickname||u.displayName||'微信用户';
+      $('avatar').textContent=[...n][0]||'用';$('name').textContent=`${n} · ${statusLabel(u.status)}`;$('identity').textContent=`微信ID：${u.providerUserId||'未记录'}`;$('uuid').textContent=`用户UUID：${u.id}`;
+      $('balance').textContent=formatCredits(w.balanceCredits);$('available').textContent=formatCredits(w.availableCredits);$('totalSpent').textContent=formatCredits(m.totalSpent);$('paidYuan').textContent=`¥${formatMoney(m.paidYuan)}`;$('memoryCount').textContent=m.memoryCount??0;$('messageCount').textContent=m.messageCount??0;
+      $('personaText').textContent=[p.personaName&&`角色：${p.personaName}`,p.userAlias&&`称呼：${p.userAlias}`,p.relationshipStage&&`关系：${relationshipLabel(p.relationshipStage)}`,p.role&&`定位：${p.role}`,p.personality&&`性格：${p.personality}`].filter(Boolean).join(' ｜ ')||'暂无人设';
+      renderOrders(d.orders||[]);renderTransactions(d.transactions||[]);renderAudits(d.audits||[]);
+    }
+
+    function renderOrders(rows){const body=$('ordersBody'),empty=$('ordersEmpty');if(!rows.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';body.innerHTML=rows.map(r=>`<tr><td>${esc(r.orderNo)}</td><td>${esc(r.packageName||'-')}</td><td>¥${formatMoney(r.amountYuan)}</td><td>${formatCredits(r.credits)}</td><td>${esc(orderLabel(r.status))}</td><td>${esc(formatDate(r.createdAt))}</td></tr>`).join('')}
+    function renderTransactions(rows){const body=$('transactionsBody'),empty=$('transactionsEmpty');if(!rows.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';body.innerHTML=rows.map(r=>{const direction=r.metadata?.direction==='subtract'?'-':(r.type==='capture'?'-':'+');return `<tr><td>${esc(typeLabel(r.type))}</td><td>${direction}${formatCredits(r.credits)}</td><td>${formatCredits(r.balanceAfter)}</td><td title="${esc(r.referenceKey||'')}">${esc(r.description||'-')}</td><td>${esc(formatDate(r.occurredAt))}</td></tr>`}).join('')}
+    function renderAudits(rows){$('auditList').innerHTML=rows.length?rows.map(r=>`<div style="padding:7px 0;border-bottom:1px solid var(--line)">${esc(auditLabel(r.action))} · ${esc(formatDate(r.occurredAt))}${r.details?.reason?`<br><span class="muted">${esc(r.details.reason)}</span>`:''}</div>`).join(''):'暂无管理操作'}
+
+    async function changeStatus(status){if(!state.selectedId)return;const label=statusLabel(status);const reason=prompt(`请输入${label}原因（可留空）`,'')??null;if(reason===null)return;if(!confirm(`确认将当前用户状态改为“${label}”吗？`))return;await api(`/api/users/${state.selectedId}/status`,{method:'POST',body:JSON.stringify({status,reason})});showToast('用户状态已更新');await loadUsers();await selectUser(state.selectedId,false);await loadOverview()}
+    async function adjustCredits(){if(!state.selectedId)return;const credits=Number($('credits').value);if(!Number.isFinite(credits)||credits<=0)return showToast('请输入大于 0 的额度','error');const text=state.direction==='add'?'增加':'扣减';if(!confirm(`确认给当前用户${text} ${formatCredits(credits)} 额度吗？`))return;const button=$('submitCredits');button.disabled=true;try{const payload=await api(`/api/users/${state.selectedId}/credits`,{method:'POST',body:JSON.stringify({direction:state.direction,credits,note:$('note').value.trim(),reference:$('reference').value.trim()})});showToast(payload.result?.duplicate?'该业务编号已处理，没有重复操作':`${text}额度成功`);$('credits').value='';$('reference').value='';await loadUsers();await selectUser(state.selectedId,false);await loadOverview()}catch(e){showToast(e.message,'error')}finally{button.disabled=false}}
+    async function saveTrial(){const credits=Number($('trialCredits').value);if(!Number.isFinite(credits)||credits<0)return showToast('试用额度必须大于等于 0','error');await api('/api/settings/trial',{method:'POST',body:JSON.stringify({credits})});showToast('新用户试用额度已保存');await loadOverview()}
+    function setDirection(direction){state.direction=direction;document.querySelectorAll('[data-direction]').forEach(b=>b.classList.toggle('active',b.dataset.direction===direction));$('submitCredits').textContent=direction==='add'?'确认增加额度':'确认扣减额度'}
+
+    function showToast(message,type='success'){$('toast').textContent=message;$('toast').className=`toast ${type} show`;clearTimeout(showToast.timer);showToast.timer=setTimeout(()=>$('toast').classList.remove('show'),3200)}
+    function statusLabel(v){return({active:'正常',paused:'已暂停',blocked:'已封禁',deleted:'已删除'})[v]||v||'未知'}
+    function orderLabel(v){return({pending:'待确认',paid:'已到账',cancelled:'已取消'})[v]||v||'-'}
+    function typeLabel(v){return({topup:'充值',refund:'补回',capture:'聊天消费',reserve:'预留',release:'释放',adjustment:'人工调整'})[v]||v||'-'}
+    function auditLabel(v){return({'admin.user.status_changed':'用户状态变更','admin.user.credits_adjusted':'人工调整额度'})[v]||v||'管理操作'}
+    function relationshipLabel(v){return({stranger:'陌生',acquaintance:'认识',familiar:'熟悉',close:'亲近',ambiguous:'暧昧',partner:'恋人',committed:'稳定关系',custom:'自定义'})[v]||v}
+    function formatCredits(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(3).replace(/\.000$/,'').replace(/(\.\d*?)0+$/,'$1'):'0'}
+    function formatMoney(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(2):'0.00'}
+    function formatDate(v){if(!v)return'-';const d=new Date(v);if(Number.isNaN(d.getTime()))return String(v);return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(d)}
+    function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')}
+
+    $('reload').addEventListener('click',loadAll);$('filter').addEventListener('change',loadUsers);$('lowBalance').addEventListener('change',loadUsers);$('search').addEventListener('keydown',e=>{if(e.key==='Enter')loadUsers()});$('saveTrial').addEventListener('click',()=>saveTrial().catch(e=>showToast(e.message,'error')));$('submitCredits').addEventListener('click',adjustCredits);document.querySelectorAll('[data-status]').forEach(b=>b.addEventListener('click',()=>changeStatus(b.dataset.status).catch(e=>showToast(e.message,'error'))));document.querySelectorAll('[data-direction]').forEach(b=>b.addEventListener('click',()=>setDirection(b.dataset.direction)));
+    loadAll().catch(e=>showToast(e.message,'error'));
+  </script>
+</body>
+</html>
