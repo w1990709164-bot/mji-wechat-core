@@ -245,7 +245,7 @@ class ProactiveCompanionService {
                AND pending.reason = 'proactive_companion'
                AND pending.status IN ('pending', 'running')
            )
-           AND (wp.last_wake_at IS NULL OR wp.last_wake_at <= NOW() - make_interval(mins => GREATEST(wp.minimum_gap_minutes, $6)))
+           AND (wp.last_wake_at IS NULL OR wp.last_wake_at <= NOW() - make_interval(mins => wp.minimum_gap_minutes))
            AND wp.next_wake_at IS NOT NULL AND wp.next_wake_at <= NOW()
            AND NOT CASE
              WHEN wp.quiet_start < wp.quiet_end THEN
@@ -264,7 +264,6 @@ class ProactiveCompanionService {
           this.settings.activeWindowDays,
           this.settings.minInactivityMinutes,
           this.settings.normalReplyCredits,
-          this.settings.minimumGapMinutes,
         ]
       );
       return result.rows[0] ? mapCandidate(result.rows[0]) : null;
@@ -296,10 +295,8 @@ class ProactiveCompanionService {
   }
 
   async #recordWake(state, candidate, jobId, score) {
-    const delay = randomInt(
-      Math.max(candidate.minIntervalMinutes, this.settings.minIntervalMinutes),
-      Math.max(candidate.maxIntervalMinutes, this.settings.maxIntervalMinutes)
-    );
+    const range = resolveCandidateIntervalRange(candidate, this.settings);
+    const delay = randomInt(range.min, range.max);
     await this.storage.withTenant(state.tenantId, async (client) => {
       await client.query(
         `UPDATE wake_preferences
@@ -318,10 +315,8 @@ class ProactiveCompanionService {
   }
 
   async #reschedule(state, candidate, reason, explicitMinutes = null) {
-    const delay = explicitMinutes || randomInt(
-      Math.max(candidate.minIntervalMinutes, this.settings.minIntervalMinutes),
-      Math.max(candidate.maxIntervalMinutes, this.settings.maxIntervalMinutes)
-    );
+    const range = resolveCandidateIntervalRange(candidate, this.settings);
+    const delay = explicitMinutes || randomInt(range.min, range.max);
     await this.storage.withTenant(state.tenantId, async (client) => {
       await client.query(
         `UPDATE wake_preferences
@@ -332,7 +327,7 @@ class ProactiveCompanionService {
           state.tenantId,
           candidate.userId,
           candidate.userCharacterId,
-          Math.max(5, Math.round(delay)),
+          Math.max(1, Math.round(delay)),
           JSON.stringify({ lastDecision: reason, lastDecisionAt: new Date().toISOString() }),
         ]
       );
@@ -423,16 +418,22 @@ function mapCandidate(row) {
   };
 }
 
+function resolveCandidateIntervalRange(candidate, settings) {
+  const min = positiveInteger(candidate?.minIntervalMinutes, settings.minIntervalMinutes);
+  const max = Math.max(min, positiveInteger(candidate?.maxIntervalMinutes, min));
+  return { min, max };
+}
+
 function resolveSettings(env) {
   return {
     enabled: readBoolean(env.MJI_PROACTIVE_ENABLED, true),
     pollMs: readInt(env.MJI_PROACTIVE_POLL_MS, 15_000, 3_600_000, DEFAULTS.pollMs),
     globalDailyLimit: readInt(env.MJI_PROACTIVE_GLOBAL_DAILY_LIMIT, 1, 10000, DEFAULTS.globalDailyLimit),
-    minInactivityMinutes: readInt(env.MJI_PROACTIVE_MIN_INACTIVITY_MINUTES, 30, 10080, DEFAULTS.minInactivityMinutes),
+    minInactivityMinutes: readInt(env.MJI_PROACTIVE_MIN_INACTIVITY_MINUTES, 1, 10080, DEFAULTS.minInactivityMinutes),
     activeWindowDays: readInt(env.MJI_PROACTIVE_ACTIVE_WINDOW_DAYS, 1, 90, DEFAULTS.activeWindowDays),
-    minIntervalMinutes: readInt(env.MJI_PROACTIVE_MIN_INTERVAL_MINUTES, 60, 10080, DEFAULTS.minIntervalMinutes),
-    maxIntervalMinutes: readInt(env.MJI_PROACTIVE_MAX_INTERVAL_MINUTES, 60, 10080, DEFAULTS.maxIntervalMinutes),
-    minimumGapMinutes: readInt(env.MJI_PROACTIVE_MINIMUM_GAP_MINUTES, 60, 10080, DEFAULTS.minimumGapMinutes),
+    minIntervalMinutes: readInt(env.MJI_PROACTIVE_MIN_INTERVAL_MINUTES, 1, 10080, DEFAULTS.minIntervalMinutes),
+    maxIntervalMinutes: readInt(env.MJI_PROACTIVE_MAX_INTERVAL_MINUTES, 1, 10080, DEFAULTS.maxIntervalMinutes),
+    minimumGapMinutes: readInt(env.MJI_PROACTIVE_MINIMUM_GAP_MINUTES, 1, 10080, DEFAULTS.minimumGapMinutes),
     normalReplyCredits: DEFAULTS.normalReplyCredits,
   };
 }
@@ -449,6 +450,11 @@ function formatDateKey(date, timezone) {
 function minutesSince(value) {
   const date = value instanceof Date ? value : new Date(value);
   return Number.isNaN(date.getTime()) ? Infinity : Math.max(0, (Date.now() - date.getTime()) / 60_000);
+}
+
+function positiveInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function readBoolean(value, fallback) {
@@ -498,5 +504,6 @@ module.exports = {
   ProactiveCompanionService,
   buildProactiveTrigger,
   calculateCandidateScore,
+  resolveCandidateIntervalRange,
   resolveSettings,
 };
