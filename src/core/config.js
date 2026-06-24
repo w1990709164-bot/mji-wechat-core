@@ -5,11 +5,18 @@ function readConfig() {
   const argv = process.argv.slice(2);
   const mode = argv[0] || "";
   const stateDir = process.env.CYBERBOSS_STATE_DIR || path.join(os.homedir(), ".cyberboss");
+  const accountId = readTextEnv("CYBERBOSS_ACCOUNT_ID");
+  const instanceId = normalizeInstanceId(readTextEnv("CYBERBOSS_INSTANCE_ID") || accountId);
+  const instanceStateDir = instanceId
+    ? path.join(stateDir, "instances", instanceId)
+    : stateDir;
 
   return {
     mode,
     argv,
     stateDir,
+    instanceId,
+    instanceStateDir,
     databaseUrl: readTextEnv("MJI_DATABASE_URL") || readTextEnv("DATABASE_URL"),
     databaseMaxConnections: readIntEnv("MJI_DATABASE_MAX_CONNECTIONS") || 10,
     databaseIdleTimeoutMs: readIntEnv("MJI_DATABASE_IDLE_TIMEOUT_MS") || 30_000,
@@ -24,19 +31,19 @@ function readConfig() {
     channel: readTextEnv("CYBERBOSS_CHANNEL") || "weixin",
     runtime: readTextEnv("CYBERBOSS_RUNTIME") || "codex",
     timelineCommand: readTextEnv("CYBERBOSS_TIMELINE_COMMAND") || "timeline-for-agent",
-    accountId: readTextEnv("CYBERBOSS_ACCOUNT_ID"),
+    accountId,
     weixinBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_BASE_URL") || "https://ilinkai.weixin.qq.com",
     weixinCdnBaseUrl: readTextEnv("CYBERBOSS_WEIXIN_CDN_BASE_URL") || "https://novac2c.cdn.weixin.qq.com/c2c",
     weixinConfigFile: path.join(stateDir, "weixin-config.json"),
     weixinMinChunkChars: readIntEnv("CYBERBOSS_WEIXIN_MIN_CHUNK_CHARS"),
     weixinQrBotType: readTextEnv("CYBERBOSS_WEIXIN_QR_BOT_TYPE") || "3",
     accountsDir: path.join(stateDir, "accounts"),
-    reminderQueueFile: path.join(stateDir, "reminder-queue.json"),
-    systemMessageQueueFile: path.join(stateDir, "system-message-queue.json"),
-    deferredSystemReplyQueueFile: path.join(stateDir, "deferred-system-replies.json"),
-    checkinConfigFile: path.join(stateDir, "checkin-config.json"),
-    timelineScreenshotQueueFile: path.join(stateDir, "timeline-screenshot-queue.json"),
-    projectToolContextFile: path.join(stateDir, "project-tool-runtime-context.json"),
+    reminderQueueFile: path.join(instanceStateDir, "reminder-queue.json"),
+    systemMessageQueueFile: path.join(instanceStateDir, "system-message-queue.json"),
+    deferredSystemReplyQueueFile: path.join(instanceStateDir, "deferred-system-replies.json"),
+    checkinConfigFile: path.join(instanceStateDir, "checkin-config.json"),
+    timelineScreenshotQueueFile: path.join(instanceStateDir, "timeline-screenshot-queue.json"),
+    projectToolContextFile: path.join(instanceStateDir, "project-tool-runtime-context.json"),
     weixinInstructionsFile: path.join(stateDir, "weixin-instructions.md"),
     weixinOperationsFile: path.resolve(__dirname, "..", "..", "templates", "weixin-operations.md"),
     stickersDir: path.join(stateDir, "stickers"),
@@ -47,8 +54,8 @@ function readConfig() {
     stickersTemplateIndexFile: path.resolve(__dirname, "..", "..", "templates", "stickers", "index.json"),
     stickerTagsTemplateFile: path.resolve(__dirname, "..", "..", "templates", "stickers", "tags.json"),
     stickerNormalizeGifScript: path.resolve(__dirname, "..", "..", "scripts", "normalize-sticker-gif.js"),
-    diaryDir: path.join(stateDir, "diary"),
-    locationStoreFile: path.join(stateDir, "locations.json"),
+    diaryDir: path.join(instanceStateDir, "diary"),
+    locationStoreFile: path.join(instanceStateDir, "locations.json"),
     locationHost: readTextEnv("CYBERBOSS_LOCATION_HOST") || "0.0.0.0",
     locationPort: readIntEnv("CYBERBOSS_LOCATION_PORT") || 4318,
     locationToken: readTextEnv("CYBERBOSS_LOCATION_TOKEN"),
@@ -84,7 +91,7 @@ function readConfig() {
     claudePermissionMode: readTextEnv("CYBERBOSS_CLAUDE_PERMISSION_MODE") || "default",
     claudeDisableVerbose: readBoolEnv("CYBERBOSS_CLAUDE_DISABLE_VERBOSE"),
     claudeExtraArgs: readListEnv("CYBERBOSS_CLAUDE_EXTRA_ARGS"),
-    sessionsFile: path.join(stateDir, "sessions.json"),
+    sessionsFile: path.join(instanceStateDir, "sessions.json"),
     startWithCheckin: (mode === "start" && hasArgFlag(argv, "--checkin")) || readBoolEnv("CYBERBOSS_ENABLE_CHECKIN"),
   };
 }
@@ -108,23 +115,15 @@ function readBoolEnv(name) {
 
 function readOptionalBoolEnv(name) {
   const value = readTextEnv(name).toLowerCase();
-  if (!value) {
-    return undefined;
-  }
-  if (value === "1" || value === "true" || value === "yes" || value === "on") {
-    return true;
-  }
-  if (value === "0" || value === "false" || value === "no" || value === "off") {
-    return false;
-  }
+  if (!value) return undefined;
+  if (value === "1" || value === "true" || value === "yes" || value === "on") return true;
+  if (value === "0" || value === "false" || value === "no" || value === "off") return false;
   return undefined;
 }
 
 function readIntEnv(name) {
   const value = readTextEnv(name);
-  if (!value) {
-    return undefined;
-  }
+  if (!value) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
 }
@@ -139,9 +138,7 @@ function readKnownPlacesEnv() {
 }
 
 function parseKnownPlacesJson(value) {
-  if (!value) {
-    return [];
-  }
+  if (!value) return [];
   try {
     const parsed = JSON.parse(value);
     return Array.isArray(parsed) ? parsed : [];
@@ -152,14 +149,10 @@ function parseKnownPlacesJson(value) {
 
 function parseKnownPlaceCenter(tag, value) {
   const parts = value.split(",").map((part) => part.trim()).filter(Boolean);
-  if (parts.length !== 2) {
-    return null;
-  }
+  if (parts.length !== 2) return null;
   const latitude = Number(parts[0]);
   const longitude = Number(parts[1]);
-  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-    return null;
-  }
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
   return { tag, latitude, longitude };
 }
 
@@ -168,13 +161,19 @@ function hasArgFlag(argv, flag) {
 }
 
 function resolveLocationServerEnabled({ mode, enabled }) {
-  if (mode !== "start") {
-    return false;
-  }
-  if (typeof enabled === "boolean") {
-    return enabled;
-  }
+  if (mode !== "start") return false;
+  if (typeof enabled === "boolean") return enabled;
   return false;
+}
+
+function normalizeInstanceId(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 120);
 }
 
 module.exports = { readConfig };
