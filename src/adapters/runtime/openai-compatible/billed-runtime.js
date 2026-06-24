@@ -9,6 +9,9 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
   const resolveContext = typeof options.resolveContext === "function"
     ? options.resolveContext
     : () => null;
+  const onWakeOutcome = typeof options.onWakeOutcome === "function"
+    ? options.onWakeOutcome
+    : async () => {};
   const listeners = new Set();
   const reservationByRunKey = new Map();
   const blockedRunKeys = new Set();
@@ -33,68 +36,113 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
     const turnId = normalizeText(event?.payload?.turnId);
     const runKey = buildRunKey(threadId, turnId);
     const reservation = reservationByRunKey.get(runKey) || null;
-    const isSuccessfulDelivery = event?.type === "runtime.reply.delivery"
+    const isReplyEvent = event?.type === "runtime.reply.delivery"
       || event?.type === "runtime.reply.completed";
 
-    if (isSuccessfulDelivery && reservation && !reservation.captured) {
-      try {
-        const source = normalizeText(reservation.context.source) || "chat";
-        const captured = await billing.captureCredits({
-          tenantId: reservation.context.tenantId,
-          userId: reservation.context.userId,
-          credits: reservation.credits,
-          referenceKey: reservation.referenceKey,
-          description: source === "wake" ? "主动消息消费" : "Charge for successful AI reply",
-          metadata: {
-            threadId,
-            turnId,
-            source,
-            provider: base.describe().modelProvider,
-            model: base.describe().model,
-            streamed: event?.type === "runtime.reply.delivery",
-          },
-        });
-        if (!captured?.ok) {
-          throw new Error("用户额度扣除失败");
-        }
-        reservation.captured = true;
-        reservation.wallet = captured.wallet;
-        console.log(
-          `[mji] charged user=${reservation.context.userId} source=${source} credits=${reservation.credits} balance=${captured.wallet.balanceCredits}`
-        );
-      } catch (error) {
-        blockedRunKeys.add(runKey);
-        await emitToListeners({
-          type: "runtime.turn.failed",
-          payload: {
-            threadId,
-            turnId,
-            text: `额度扣除失败，本次回复未发送：${formatError(error)}`,
-          },
-        });
-        return;
+    if (reservation && isReplyEvent) {
+      const replyText = String(event?.payload?.rawText || event?.payload?.text || "");
+      if (replyText.trim()) {
+        reservation.lastReplyText = replyText;
       }
     }
 
-    if (event?.type === "runtime.turn.failed" && reservation && !reservation.captured) {
+    if (reservation && !reservation.settled) {
       const source = normalizeText(reservation.context.source) || "chat";
-      await billing.releaseCredits({
-        tenantId: reservation.context.tenantId,
-        userId: reservation.context.userId,
-        credits: reservation.credits,
-        referenceKey: reservation.referenceKey,
+      if (source === "wake") {
+        const wakeAction = classifyWakeReply(reservation.lastReplyText);
+        if (wakeAction.kind === "silent") {
+          await releaseReservation(reservation, {
+            threadId,
+            turnId,
+            source,
+            description: "主动消息选择沉默，释放预留额度",
+            reason: "silent",
+          });
+          reservation.settled = true;
+          reservation.outcome = "skipped";
+          await notifyWakeOutcome(reservation, {
+            status: "skipped",
+            reason: "silent",
+            threadId,
+            turnId,
+          });
+          console.log(
+            `[mji] wake skipped user=${reservation.context.userId} reason=silent creditsCharged=0`
+          );
+        } else if (wakeAction.kind === "send_message") {
+          await captureReservation(reservation, {
+            threadId,
+            turnId,
+            source,
+            streamed: event?.type === "runtime.reply.delivery",
+          });
+          await notifyWakeOutcome(reservation, {
+            status: "sent",
+            reason: "send_message",
+            threadId,
+            turnId,
+          });
+        } else if (event?.type === "runtime.turn.completed") {
+          await releaseReservation(reservation, {
+            threadId,
+            turnId,
+            source,
+            description: "主动消息返回无效动作，释放预留额度",
+            reason: wakeAction.reason || "invalid_action",
+          });
+          reservation.settled = true;
+          reservation.outcome = "failed";
+          await notifyWakeOutcome(reservation, {
+            status: "failed",
+            reason: wakeAction.reason || "invalid_action",
+            threadId,
+            turnId,
+          });
+        }
+      } else if (isReplyEvent) {
+        try {
+          await captureReservation(reservation, {
+            threadId,
+            turnId,
+            source,
+            streamed: event?.type === "runtime.reply.delivery",
+          });
+        } catch (error) {
+          blockedRunKeys.add(runKey);
+          await emitToListeners({
+            type: "runtime.turn.failed",
+            payload: {
+              threadId,
+              turnId,
+              text: `额度扣除失败，本次回复未发送：${formatError(error)}`,
+            },
+          });
+          return;
+        }
+      }
+    }
+
+    if (event?.type === "runtime.turn.failed" && reservation && !reservation.settled) {
+      const source = normalizeText(reservation.context.source) || "chat";
+      await releaseReservation(reservation, {
+        threadId,
+        turnId,
+        source,
         description: source === "wake"
           ? "主动消息生成失败，释放预留额度"
           : "Release credits after failed AI reply",
-        metadata: {
+        reason: normalizeText(event?.payload?.text) || "runtime_failed",
+      });
+      reservation.settled = true;
+      reservation.outcome = "failed";
+      if (source === "wake") {
+        await notifyWakeOutcome(reservation, {
+          status: "failed",
+          reason: normalizeText(event?.payload?.text) || "runtime_failed",
           threadId,
           turnId,
-          source,
-          reason: normalizeText(event?.payload?.text),
-        },
-      }).catch((error) => {
-        console.error(`[mji] release reservation failed: ${formatError(error)}`);
-      });
+        });
+      }
     }
 
     if (blockedRunKeys.has(runKey)) {
@@ -111,6 +159,68 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
       reservationByRunKey.delete(runKey);
       blockedRunKeys.delete(runKey);
     }
+  }
+
+  async function captureReservation(reservation, details) {
+    if (reservation.settled) return reservation.wallet || null;
+    const captured = await billing.captureCredits({
+      tenantId: reservation.context.tenantId,
+      userId: reservation.context.userId,
+      credits: reservation.credits,
+      referenceKey: reservation.referenceKey,
+      description: details.source === "wake" ? "主动消息消费" : "Charge for successful AI reply",
+      metadata: {
+        threadId: details.threadId,
+        turnId: details.turnId,
+        source: details.source,
+        provider: base.describe().modelProvider,
+        model: base.describe().model,
+        streamed: Boolean(details.streamed),
+        wakeJobId: normalizeText(reservation.context.wakeJobId),
+      },
+    });
+    if (!captured?.ok) {
+      throw new Error("用户额度扣除失败");
+    }
+    reservation.captured = true;
+    reservation.settled = true;
+    reservation.outcome = "sent";
+    reservation.wallet = captured.wallet;
+    console.log(
+      `[mji] charged user=${reservation.context.userId} source=${details.source} credits=${reservation.credits} balance=${captured.wallet.balanceCredits}`
+    );
+    return captured.wallet;
+  }
+
+  async function releaseReservation(reservation, details) {
+    if (reservation.settled) return;
+    await billing.releaseCredits({
+      tenantId: reservation.context.tenantId,
+      userId: reservation.context.userId,
+      credits: reservation.credits,
+      referenceKey: reservation.referenceKey,
+      description: details.description,
+      metadata: {
+        threadId: details.threadId,
+        turnId: details.turnId,
+        source: details.source,
+        reason: details.reason,
+        wakeJobId: normalizeText(reservation.context.wakeJobId),
+      },
+    }).catch((error) => {
+      console.error(`[mji] release reservation failed: ${formatError(error)}`);
+    });
+  }
+
+  async function notifyWakeOutcome(reservation, outcome) {
+    if (reservation.wakeOutcomeNotified) return;
+    reservation.wakeOutcomeNotified = true;
+    await Promise.resolve(onWakeOutcome({
+      context: reservation.context,
+      ...outcome,
+    })).catch((error) => {
+      console.error(`[mji] wake outcome callback failed: ${formatError(error)}`);
+    });
   }
 
   async function emitToListeners(event) {
@@ -161,6 +271,7 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
           provider: base.describe().modelProvider,
           model: normalizeText(args.model) || base.describe().model,
           senderId: normalizeText(args.metadata?.senderId),
+          wakeJobId: normalizeText(context.wakeJobId),
         },
       });
 
@@ -178,6 +289,9 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
           credits: chargeCredits,
           referenceKey,
           captured: false,
+          settled: false,
+          wakeOutcomeNotified: false,
+          lastReplyText: "",
         });
         return turn;
       } catch (error) {
@@ -189,14 +303,80 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
           description: source === "wake"
             ? "主动消息未启动，释放预留额度"
             : "Release credits because request did not start",
-          metadata: { source, error: formatError(error) },
+          metadata: {
+            source,
+            error: formatError(error),
+            wakeJobId: normalizeText(context.wakeJobId),
+          },
         }).catch(() => {});
+        if (source === "wake") {
+          await Promise.resolve(onWakeOutcome({
+            context,
+            status: "failed",
+            reason: formatError(error),
+            threadId: "",
+            turnId: "",
+          })).catch(() => {});
+        }
         throw error;
       }
     },
   };
 
   return adapter;
+}
+
+function classifyWakeReply(value) {
+  const normalized = unwrapJsonCodeFence(String(value || "").trim())
+    .replace(/^json\s*:\s*/i, "")
+    .trim();
+  if (!normalized) {
+    return { kind: "pending", reason: "empty_reply" };
+  }
+  const candidate = extractActionJson(normalized);
+  if (!candidate) {
+    return { kind: "invalid", reason: "missing_action_json" };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    return { kind: "invalid", reason: "invalid_action_json" };
+  }
+  const action = normalizeText(parsed?.action || parsed?.cyberboss_action)
+    .toLowerCase()
+    .replace(/\s+/g, "_");
+  if (action === "silent") {
+    return { kind: "silent" };
+  }
+  if (action === "send_message" && normalizeText(parsed?.message)) {
+    return { kind: "send_message", message: normalizeText(parsed.message) };
+  }
+  return { kind: "invalid", reason: "unsupported_or_empty_action" };
+}
+
+function extractActionJson(text) {
+  if (text.startsWith("{") && text.endsWith("}")) {
+    return text;
+  }
+  for (let index = text.lastIndexOf("{"); index >= 0; index = text.lastIndexOf("{", index - 1)) {
+    const candidate = text.slice(index).trim();
+    if (!candidate.endsWith("}")) continue;
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && !Array.isArray(parsed) && typeof parsed === "object" && ("action" in parsed || "cyberboss_action" in parsed)) {
+        return candidate;
+      }
+    } catch {
+      // Continue looking for the final structured action object.
+    }
+  }
+  return "";
+}
+
+function unwrapJsonCodeFence(text) {
+  const match = String(text || "").trim().match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return match ? String(match[1] || "").trim() : String(text || "").trim();
 }
 
 function buildRunKey(threadId, turnId) {
@@ -225,4 +405,7 @@ function formatError(error) {
   return error instanceof Error ? error.message : String(error || "unknown error");
 }
 
-module.exports = { createBilledOpenAICompatibleRuntimeAdapter };
+module.exports = {
+  classifyWakeReply,
+  createBilledOpenAICompatibleRuntimeAdapter,
+};
