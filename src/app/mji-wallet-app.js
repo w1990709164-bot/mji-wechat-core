@@ -5,11 +5,13 @@ const { StreamDelivery } = require("../core/stream-delivery");
 const { ThreadStateStore } = require("../core/thread-state-store");
 const { createReliableMemoryRuntimeAdapter } = require("../adapters/runtime/openai-compatible/reliable-memory-runtime");
 const { handleUserCommandMessage } = require("./user-command-center");
+const { ProactiveCompanionService } = require("../services/proactive-companion-service");
 
 class MjiWalletApp extends MjiOpenAIApp {
   constructor(config) {
     super(config);
     this.newUserTrialCreditsCache = { value: null, expiresAtMs: 0 };
+    this.proactiveCompanionService = null;
 
     const explicitRuntime = normalizeText(process.env.CYBERBOSS_RUNTIME).toLowerCase();
     if (explicitRuntime === "codex" || explicitRuntime === "claudecode") {
@@ -108,6 +110,70 @@ class MjiWalletApp extends MjiOpenAIApp {
     });
   }
 
+  async initializeMjiStorage() {
+    const result = await super.initializeMjiStorage();
+    const explicitRuntime = normalizeText(process.env.CYBERBOSS_RUNTIME).toLowerCase();
+    if (
+      result
+      && explicitRuntime !== "codex"
+      && explicitRuntime !== "claudecode"
+      && this.mjiStorage?.wakeJobs
+      && this.systemMessageQueue
+    ) {
+      this.proactiveCompanionService = new ProactiveCompanionService({
+        storage: this.mjiStorage,
+        config: this.config,
+        systemMessageQueue: this.systemMessageQueue,
+        getState: () => ({
+          tenantId: this.mjiTenant?.id || "",
+          channelAccountId: this.mjiChannelAccount?.id || "",
+          accountId: this.activeAccountId || "",
+          knownContextTokens: this.channelAdapter.getKnownContextTokens(),
+        }),
+        prepareContext: ({ state, candidate, source }) => this.prepareProactiveContext({
+          state,
+          candidate,
+          source,
+        }),
+      });
+      this.proactiveCompanionService.start();
+    }
+    return result;
+  }
+
+  async beforeMjiStorageClose() {
+    await this.proactiveCompanionService?.stop();
+  }
+
+  prepareProactiveContext({ state, candidate, source = "wake" }) {
+    if (!state?.accountId || !candidate?.providerUserId || !candidate?.conversationId) {
+      return "";
+    }
+    const sessionStore = this.runtimeAdapter.getSessionStore();
+    const bindingKey = sessionStore.buildBindingKey({
+      workspaceId: this.config.workspaceId,
+      accountId: state.accountId,
+      senderId: candidate.providerUserId,
+    });
+    if (this.config.workspaceRoot) {
+      sessionStore.setActiveWorkspaceRoot(bindingKey, this.config.workspaceRoot);
+    }
+    const context = {
+      tenantId: state.tenantId,
+      channelAccountId: state.channelAccountId,
+      userId: candidate.userId,
+      identityId: candidate.identityId,
+      userCharacterId: candidate.userCharacterId,
+      characterId: candidate.characterId,
+      conversationId: candidate.conversationId,
+      bindingKey,
+      senderId: candidate.providerUserId,
+      source,
+    };
+    this.mjiContextByBindingKey.set(bindingKey, context);
+    return bindingKey;
+  }
+
   async handlePreparedMessage(normalized, options) {
     const explicitRuntime = normalizeText(process.env.CYBERBOSS_RUNTIME).toLowerCase();
     if (
@@ -185,6 +251,7 @@ class MjiWalletApp extends MjiOpenAIApp {
         conversationId: chat.conversation.id,
         bindingKey,
         senderId: normalized.senderId,
+        source: "chat",
       };
       this.mjiContextByBindingKey.set(bindingKey, context);
 
@@ -198,6 +265,7 @@ class MjiWalletApp extends MjiOpenAIApp {
         context,
         persona,
         storage: this.mjiStorage,
+        senderId: normalized.senderId,
         updateProfile: async (profilePatch) => {
           const updated = await this.mjiStorage.users.updateProfile({
             tenantId: this.mjiTenant.id,
