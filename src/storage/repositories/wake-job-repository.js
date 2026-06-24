@@ -7,10 +7,11 @@ const {
 } = require("../postgres/tenant-transaction");
 
 const DEFAULT_DAILY_PROACTIVE_LIMIT = 1;
-const MAX_USER_DAILY_PROACTIVE_LIMIT = 3;
+const MAX_USER_DAILY_PROACTIVE_LIMIT = 2147483647;
 const DEFAULT_MIN_INTERVAL_MINUTES = 240;
 const DEFAULT_MAX_INTERVAL_MINUTES = 720;
 const DEFAULT_MINIMUM_GAP_MINUTES = 480;
+const MAX_USER_INTERVAL_MINUTES = 2147483647;
 
 class WakeJobRepository {
   constructor(pool) {
@@ -167,9 +168,7 @@ class WakeJobRepository {
   }
 
   async getPreference(input, options = {}) {
-    assertTenantId(input?.tenantId);
-    assertUuid(input?.userId, "userId");
-    assertUuid(input?.userCharacterId, "userCharacterId");
+    assertPreferenceIdentity(input);
 
     return withTenantTransaction(
       this.pool,
@@ -196,31 +195,19 @@ class WakeJobRepository {
             JSON.stringify({ dailyLimitSource: "system_default" }),
           ]
         );
-        const result = await client.query(
-          `SELECT *
-             FROM wake_preferences
-            WHERE tenant_id = $1
-              AND user_id = $2
-              AND user_character_id = $3
-            LIMIT 1`,
-          [input.tenantId, input.userId, input.userCharacterId]
-        );
-        return result.rows[0] ? mapWakePreference(result.rows[0]) : null;
+        return selectPreference(client, input);
       },
       options
     );
   }
 
   async setDailyLimit(input, options = {}) {
-    assertTenantId(input?.tenantId);
-    assertUuid(input?.userId, "userId");
-    assertUuid(input?.userCharacterId, "userCharacterId");
+    assertPreferenceIdentity(input);
     const maxMessagesPerDay = normalizeDailyLimit(input.maxMessagesPerDay);
-    const now = new Date().toISOString();
     const enabled = maxMessagesPerDay > 0;
     const strategyPatch = {
       dailyLimitSource: normalizeText(input.source) || "user_command",
-      dailyLimitUpdatedAt: now,
+      dailyLimitUpdatedAt: new Date().toISOString(),
     };
 
     return withTenantTransaction(
@@ -239,16 +226,13 @@ class WakeJobRepository {
            ON CONFLICT (tenant_id, user_character_id)
            DO UPDATE SET
              enabled = EXCLUDED.enabled,
-             min_interval_minutes = GREATEST(wake_preferences.min_interval_minutes, EXCLUDED.min_interval_minutes),
-             max_interval_minutes = GREATEST(wake_preferences.max_interval_minutes, EXCLUDED.max_interval_minutes),
-             minimum_gap_minutes = GREATEST(wake_preferences.minimum_gap_minutes, EXCLUDED.minimum_gap_minutes),
              max_messages_per_day = EXCLUDED.max_messages_per_day,
              strategy = wake_preferences.strategy || EXCLUDED.strategy,
              next_wake_at = CASE
                WHEN EXCLUDED.enabled = false THEN NULL
                ELSE COALESCE(
                  wake_preferences.next_wake_at,
-                 NOW() + make_interval(mins => GREATEST(wake_preferences.min_interval_minutes, EXCLUDED.min_interval_minutes))
+                 NOW() + make_interval(mins => wake_preferences.min_interval_minutes)
                )
              END,
              updated_at = NOW()
@@ -262,6 +246,105 @@ class WakeJobRepository {
             DEFAULT_MIN_INTERVAL_MINUTES,
             DEFAULT_MAX_INTERVAL_MINUTES,
             DEFAULT_MINIMUM_GAP_MINUTES,
+            JSON.stringify(strategyPatch),
+          ]
+        );
+        return result.rows[0] ? mapWakePreference(result.rows[0]) : null;
+      },
+      options
+    );
+  }
+
+  async setIntervalMinutes(input, options = {}) {
+    assertPreferenceIdentity(input);
+    const intervalMinutes = normalizeIntervalMinutes(input.intervalMinutes);
+    const strategyPatch = {
+      intervalSource: normalizeText(input.source) || "user_command",
+      intervalUpdatedAt: new Date().toISOString(),
+    };
+
+    return withTenantTransaction(
+      this.pool,
+      input.tenantId,
+      async (client) => {
+        const result = await client.query(
+          `INSERT INTO wake_preferences (
+             tenant_id, user_id, user_character_id,
+             enabled, min_interval_minutes, max_interval_minutes,
+             minimum_gap_minutes, max_messages_per_day, strategy, next_wake_at
+           ) VALUES (
+             $1, $2, $3, true, $4, $4, $4, $5, $6::jsonb,
+             NOW() + make_interval(mins => $4)
+           )
+           ON CONFLICT (tenant_id, user_character_id)
+           DO UPDATE SET
+             min_interval_minutes = EXCLUDED.min_interval_minutes,
+             max_interval_minutes = EXCLUDED.max_interval_minutes,
+             minimum_gap_minutes = EXCLUDED.minimum_gap_minutes,
+             strategy = wake_preferences.strategy || EXCLUDED.strategy,
+             next_wake_at = CASE
+               WHEN wake_preferences.enabled THEN NOW() + make_interval(mins => EXCLUDED.min_interval_minutes)
+               ELSE NULL
+             END,
+             updated_at = NOW()
+           RETURNING *`,
+          [
+            input.tenantId,
+            input.userId,
+            input.userCharacterId,
+            intervalMinutes,
+            DEFAULT_DAILY_PROACTIVE_LIMIT,
+            JSON.stringify(strategyPatch),
+          ]
+        );
+        return result.rows[0] ? mapWakePreference(result.rows[0]) : null;
+      },
+      options
+    );
+  }
+
+  async setQuietHours(input, options = {}) {
+    assertPreferenceIdentity(input);
+    const quietStart = normalizeClock(input.quietStart);
+    const quietEnd = normalizeClock(input.quietEnd);
+    const strategyPatch = {
+      quietHoursSource: normalizeText(input.source) || "user_command",
+      quietHoursUpdatedAt: new Date().toISOString(),
+      quietHoursDisabled: quietStart === quietEnd,
+    };
+
+    return withTenantTransaction(
+      this.pool,
+      input.tenantId,
+      async (client) => {
+        const result = await client.query(
+          `INSERT INTO wake_preferences (
+             tenant_id, user_id, user_character_id,
+             enabled, quiet_start, quiet_end,
+             min_interval_minutes, max_interval_minutes,
+             minimum_gap_minutes, max_messages_per_day, strategy, next_wake_at
+           ) VALUES (
+             $1, $2, $3, true, $4::time, $5::time,
+             $6, $7, $8, $9, $10::jsonb,
+             NOW() + make_interval(mins => $6)
+           )
+           ON CONFLICT (tenant_id, user_character_id)
+           DO UPDATE SET
+             quiet_start = EXCLUDED.quiet_start,
+             quiet_end = EXCLUDED.quiet_end,
+             strategy = wake_preferences.strategy || EXCLUDED.strategy,
+             updated_at = NOW()
+           RETURNING *`,
+          [
+            input.tenantId,
+            input.userId,
+            input.userCharacterId,
+            quietStart,
+            quietEnd,
+            DEFAULT_MIN_INTERVAL_MINUTES,
+            DEFAULT_MAX_INTERVAL_MINUTES,
+            DEFAULT_MINIMUM_GAP_MINUTES,
+            DEFAULT_DAILY_PROACTIVE_LIMIT,
             JSON.stringify(strategyPatch),
           ]
         );
@@ -298,6 +381,25 @@ class WakeJobRepository {
       options
     );
   }
+}
+
+async function selectPreference(client, input) {
+  const result = await client.query(
+    `SELECT *
+       FROM wake_preferences
+      WHERE tenant_id = $1
+        AND user_id = $2
+        AND user_character_id = $3
+      LIMIT 1`,
+    [input.tenantId, input.userId, input.userCharacterId]
+  );
+  return result.rows[0] ? mapWakePreference(result.rows[0]) : null;
+}
+
+function assertPreferenceIdentity(input) {
+  assertTenantId(input?.tenantId);
+  assertUuid(input?.userId, "userId");
+  assertUuid(input?.userCharacterId, "userCharacterId");
 }
 
 function normalizeWakeJobInput(input = {}) {
@@ -350,10 +452,10 @@ function mapWakePreference(row) {
     timezone: row.timezone,
     quietStart: row.quiet_start,
     quietEnd: row.quiet_end,
-    minIntervalMinutes: Math.max(Number(row.min_interval_minutes || 0), DEFAULT_MIN_INTERVAL_MINUTES),
-    maxIntervalMinutes: Math.max(Number(row.max_interval_minutes || 0), DEFAULT_MAX_INTERVAL_MINUTES),
-    minimumGapMinutes: Math.max(Number(row.minimum_gap_minutes || 0), DEFAULT_MINIMUM_GAP_MINUTES),
-    maxMessagesPerDay: row.max_messages_per_day,
+    minIntervalMinutes: Number(row.min_interval_minutes || DEFAULT_MIN_INTERVAL_MINUTES),
+    maxIntervalMinutes: Number(row.max_interval_minutes || DEFAULT_MAX_INTERVAL_MINUTES),
+    minimumGapMinutes: Number(row.minimum_gap_minutes || DEFAULT_MINIMUM_GAP_MINUTES),
+    maxMessagesPerDay: Number(row.max_messages_per_day || 0),
     strategy: row.strategy || {},
     lastWakeAt: row.last_wake_at,
     nextWakeAt: row.next_wake_at,
@@ -364,10 +466,32 @@ function mapWakePreference(row) {
 
 function normalizeDailyLimit(value) {
   const parsed = Number.parseInt(String(value), 10);
-  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_USER_DAILY_PROACTIVE_LIMIT) {
-    throw new Error(`maxMessagesPerDay must be between 0 and ${MAX_USER_DAILY_PROACTIVE_LIMIT}`);
+  if (!Number.isSafeInteger(parsed) || parsed < 0 || parsed > MAX_USER_DAILY_PROACTIVE_LIMIT) {
+    throw new Error("maxMessagesPerDay must be a non-negative integer");
   }
   return parsed;
+}
+
+function normalizeIntervalMinutes(value) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > MAX_USER_INTERVAL_MINUTES) {
+    throw new Error("intervalMinutes must be a positive integer");
+  }
+  return parsed;
+}
+
+function normalizeClock(value) {
+  const text = normalizeText(value);
+  const match = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!match) {
+    throw new Error("quiet time must use HH:MM format");
+  }
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    throw new Error("quiet time is outside the valid clock range");
+  }
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
 function normalizeDate(value) {
@@ -408,5 +532,6 @@ module.exports = {
   DEFAULT_MIN_INTERVAL_MINUTES,
   DEFAULT_MINIMUM_GAP_MINUTES,
   MAX_USER_DAILY_PROACTIVE_LIMIT,
+  MAX_USER_INTERVAL_MINUTES,
   WakeJobRepository,
 };
