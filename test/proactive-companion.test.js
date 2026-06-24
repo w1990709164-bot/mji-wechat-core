@@ -2,25 +2,75 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { parseProactiveCommand } = require("../src/app/proactive-command-center");
-const { DEFAULTS, calculateCandidateScore, resolveSettings } = require("../src/services/proactive-companion-service");
+const {
+  durationToMinutes,
+  parseProactiveCommand,
+} = require("../src/app/proactive-command-center");
+const {
+  DEFAULTS,
+  calculateCandidateScore,
+  resolveCandidateIntervalRange,
+  resolveSettings,
+} = require("../src/services/proactive-companion-service");
 
-test("accepts daily proactive limits from zero to three", () => {
-  assert.deepEqual(parseProactiveCommand("主动消息 0"), { command: "set", limit: 0 });
-  assert.deepEqual(parseProactiveCommand("主动消息 1"), { command: "set", limit: 1 });
-  assert.deepEqual(parseProactiveCommand("主动消息每天2次"), { command: "set", limit: 2 });
-  assert.deepEqual(parseProactiveCommand("主动上限 3"), { command: "set", limit: 3 });
+test("accepts any practical non-negative daily proactive limit", () => {
+  assert.deepEqual(parseProactiveCommand("主动消息 0"), { command: "set_limit", limit: 0 });
+  assert.deepEqual(parseProactiveCommand("主动消息 1"), { command: "set_limit", limit: 1 });
+  assert.deepEqual(parseProactiveCommand("主动消息每天20次"), { command: "set_limit", limit: 20 });
+  assert.deepEqual(parseProactiveCommand("主动上限 999"), { command: "set_limit", limit: 999 });
 });
 
-test("rejects limits above three", () => {
-  assert.deepEqual(parseProactiveCommand("主动消息 4"), { command: "invalid", limit: 4 });
-});
-
-test("recognizes proactive settings commands", () => {
+test("recognizes proactive settings and switches", () => {
   assert.deepEqual(parseProactiveCommand("主动消息"), { command: "show" });
   assert.deepEqual(parseProactiveCommand("关闭主动"), { command: "disable" });
   assert.deepEqual(parseProactiveCommand("开启主动消息"), { command: "enable" });
   assert.equal(parseProactiveCommand("普通聊天"), null);
+});
+
+test("parses personal proactive intervals", () => {
+  assert.deepEqual(parseProactiveCommand("主动间隔 90分钟"), {
+    command: "set_interval",
+    intervalMinutes: 90,
+  });
+  assert.deepEqual(parseProactiveCommand("主动间隔 2小时"), {
+    command: "set_interval",
+    intervalMinutes: 120,
+  });
+  assert.deepEqual(parseProactiveCommand("主动间隔 1.5小时"), {
+    command: "set_interval",
+    intervalMinutes: 90,
+  });
+  assert.deepEqual(parseProactiveCommand("主动间隔 1天"), {
+    command: "set_interval",
+    intervalMinutes: 1440,
+  });
+  assert.equal(durationToMinutes("2", "小时"), 120);
+});
+
+test("parses personal quiet hours including overnight ranges", () => {
+  assert.deepEqual(parseProactiveCommand("免打扰 23:30-08:00"), {
+    command: "set_quiet",
+    quietStart: "23:30",
+    quietEnd: "08:00",
+  });
+  assert.deepEqual(parseProactiveCommand("免打扰 12：00至14：30"), {
+    command: "set_quiet",
+    quietStart: "12:00",
+    quietEnd: "14:30",
+  });
+  assert.deepEqual(parseProactiveCommand("关闭免打扰"), { command: "disable_quiet" });
+  assert.deepEqual(parseProactiveCommand("开启免打扰"), { command: "enable_quiet" });
+  assert.deepEqual(parseProactiveCommand("免打扰 25:00-08:00"), { command: "invalid_quiet" });
+});
+
+test("honors personal interval instead of applying the default floor", () => {
+  assert.deepEqual(
+    resolveCandidateIntervalRange(
+      { minIntervalMinutes: 30, maxIntervalMinutes: 30 },
+      { minIntervalMinutes: 240, maxIntervalMinutes: 720 }
+    ),
+    { min: 30, max: 30 }
+  );
 });
 
 test("uses conservative cost controls by default", () => {
