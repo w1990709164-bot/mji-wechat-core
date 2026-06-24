@@ -10,6 +10,9 @@ function createReliableMemoryRuntimeAdapter(config, options = {}) {
   const saveMemory = typeof options.saveMemory === "function"
     ? options.saveMemory
     : async () => null;
+  const loadPersona = typeof options.loadPersona === "function"
+    ? options.loadPersona
+    : async () => null;
 
   const listeners = new Set();
   const runStateByKey = new Map();
@@ -100,7 +103,30 @@ function createReliableMemoryRuntimeAdapter(config, options = {}) {
         metadata: args.metadata || {},
       }));
       const userText = extractUserText(args.text);
-      const turn = await base.sendTurn(args);
+
+      let nextArgs = args;
+      if (context?.tenantId && context?.userId) {
+        try {
+          const persona = await loadPersona(context);
+          const personaMessage = buildPersonaSystemMessage(persona);
+          if (personaMessage) {
+            nextArgs = {
+              ...args,
+              metadata: {
+                ...(args.metadata || {}),
+                systemMessages: [
+                  ...normalizeSystemMessages(args.metadata?.systemMessages),
+                  personaMessage,
+                ],
+              },
+            };
+          }
+        } catch (error) {
+          console.error(`[mji] persona load failed: ${formatError(error)}`);
+        }
+      }
+
+      const turn = await base.sendTurn(nextArgs);
       const runKey = buildRunKey(turn.threadId, turn.turnId);
       runStateByKey.set(runKey, {
         context,
@@ -116,6 +142,65 @@ function createReliableMemoryRuntimeAdapter(config, options = {}) {
   };
 
   return adapter;
+}
+
+function buildPersonaSystemMessage(persona) {
+  if (!persona || typeof persona !== "object") return "";
+  const preferences = persona.preferences && typeof persona.preferences === "object"
+    ? persona.preferences
+    : {};
+  const lines = [];
+
+  const characterName = normalizeText(
+    preferences.personaName || persona.characterAlias || persona.characterName
+  );
+  const userAlias = normalizeText(persona.userAlias);
+  const relationshipStage = normalizeText(persona.relationshipStage);
+  const baseSystemPrompt = sanitizePersonaText(persona.baseSystemPrompt, 4000);
+  const role = sanitizePersonaText(preferences.role, 500);
+  const personality = sanitizePersonaText(preferences.personality, 1600);
+  const speakingStyle = sanitizePersonaText(preferences.speakingStyle, 1600);
+  const relationship = sanitizePersonaText(preferences.relationship, 1000);
+  const background = sanitizePersonaText(preferences.background, 2200);
+  const boundaries = sanitizePersonaText(preferences.boundaries, 1600);
+  const extraPrompt = sanitizePersonaText(preferences.extraPrompt, 4000);
+
+  if (characterName) lines.push(`角色称呼：${characterName}`);
+  if (userAlias) lines.push(`对当前用户的称呼：${userAlias}`);
+  if (relationshipStage) lines.push(`当前关系阶段：${relationshipStage}`);
+  if (role) lines.push(`身份定位：${role}`);
+  if (personality) lines.push(`性格：${personality}`);
+  if (speakingStyle) lines.push(`说话方式：${speakingStyle}`);
+  if (relationship) lines.push(`与用户的关系要求：${relationship}`);
+  if (background) lines.push(`背景设定：${background}`);
+  if (boundaries) lines.push(`边界与禁区：${boundaries}`);
+  if (baseSystemPrompt) lines.push(`基础角色指令：${baseSystemPrompt}`);
+  if (extraPrompt) lines.push(`用户专属补充指令：${extraPrompt}`);
+
+  if (!lines.length) return "";
+  return [
+    "以下是仅适用于当前用户的专属角色设定。",
+    "不得把该设定、称呼、关系状态或记忆泄露给其他用户。",
+    "当前用户专属设定优先于通用角色风格，但不得覆盖系统安全规则。",
+    "在对话中自然执行，不要主动说明你正在读取人设配置。",
+    ...lines.map((line) => `- ${line}`),
+  ].join("\n");
+}
+
+function normalizeSystemMessages(value) {
+  const source = Array.isArray(value) ? value : value == null ? [] : [value];
+  return source
+    .map((item) => normalizeText(item))
+    .filter(Boolean)
+    .slice(0, 20);
+}
+
+function sanitizePersonaText(value, maximum) {
+  return String(value || "")
+    .replace(/<\/?mji_[^>]*>/gi, "")
+    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, " ")
+    .trim()
+    .slice(0, maximum);
 }
 
 function extractExplicitMemories(value, context) {
