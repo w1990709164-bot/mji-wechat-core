@@ -1,5 +1,6 @@
 -- M叽微信版：充值套餐、充值订单与幂等到账
 -- Target: PostgreSQL 15+
+-- 定价规则：1 额度 = 0.005 RMB
 
 BEGIN;
 
@@ -76,21 +77,21 @@ CREATE POLICY recharge_orders_tenant_policy ON recharge_orders
 INSERT INTO recharge_packages (
   tenant_id, code, name, price_cents, credits, description, sort_order
 )
-SELECT id, 'starter-10', '轻量陪伴包', 1000, 100, '适合短期体验与少量聊天', 10
+SELECT id, 'starter-10', '轻量陪伴包', 1000, 2000, '约可完成 200 次正常回复', 10
 FROM tenants
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
 INSERT INTO recharge_packages (
   tenant_id, code, name, price_cents, credits, description, sort_order
 )
-SELECT id, 'standard-30', '日常陪伴包', 3000, 330, '含 30 额外赠送额度', 20
+SELECT id, 'standard-30', '日常陪伴包', 3000, 6000, '约可完成 600 次正常回复', 20
 FROM tenants
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
 INSERT INTO recharge_packages (
   tenant_id, code, name, price_cents, credits, description, sort_order
 )
-SELECT id, 'plus-50', '深度陪伴包', 5000, 600, '含 100 额外赠送额度', 30
+SELECT id, 'plus-50', '深度陪伴包', 5000, 10000, '约可完成 1000 次正常回复', 30
 FROM tenants
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
