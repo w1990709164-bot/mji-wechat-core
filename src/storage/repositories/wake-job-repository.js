@@ -6,6 +6,9 @@ const {
   withTenantTransaction,
 } = require("../postgres/tenant-transaction");
 
+const DEFAULT_DAILY_PROACTIVE_LIMIT = 1;
+const MAX_USER_DAILY_PROACTIVE_LIMIT = 3;
+
 class WakeJobRepository {
   constructor(pool) {
     if (!pool || typeof pool.connect !== "function") {
@@ -160,6 +163,91 @@ class WakeJobRepository {
     );
   }
 
+  async getPreference(input, options = {}) {
+    assertTenantId(input?.tenantId);
+    assertUuid(input?.userId, "userId");
+    assertUuid(input?.userCharacterId, "userCharacterId");
+
+    return withTenantTransaction(
+      this.pool,
+      input.tenantId,
+      async (client) => {
+        await client.query(
+          `INSERT INTO wake_preferences (
+             tenant_id, user_id, user_character_id,
+             enabled, max_messages_per_day, strategy
+           ) VALUES ($1, $2, $3, true, $4, $5::jsonb)
+           ON CONFLICT (tenant_id, user_character_id) DO NOTHING`,
+          [
+            input.tenantId,
+            input.userId,
+            input.userCharacterId,
+            DEFAULT_DAILY_PROACTIVE_LIMIT,
+            JSON.stringify({ dailyLimitSource: "system_default" }),
+          ]
+        );
+        const result = await client.query(
+          `SELECT *
+             FROM wake_preferences
+            WHERE tenant_id = $1
+              AND user_id = $2
+              AND user_character_id = $3
+            LIMIT 1`,
+          [input.tenantId, input.userId, input.userCharacterId]
+        );
+        return result.rows[0] ? mapWakePreference(result.rows[0]) : null;
+      },
+      options
+    );
+  }
+
+  async setDailyLimit(input, options = {}) {
+    assertTenantId(input?.tenantId);
+    assertUuid(input?.userId, "userId");
+    assertUuid(input?.userCharacterId, "userCharacterId");
+    const maxMessagesPerDay = normalizeDailyLimit(input.maxMessagesPerDay);
+    const now = new Date().toISOString();
+    const enabled = maxMessagesPerDay > 0;
+    const strategyPatch = {
+      dailyLimitSource: normalizeText(input.source) || "user_command",
+      dailyLimitUpdatedAt: now,
+    };
+
+    return withTenantTransaction(
+      this.pool,
+      input.tenantId,
+      async (client) => {
+        const result = await client.query(
+          `INSERT INTO wake_preferences (
+             tenant_id, user_id, user_character_id,
+             enabled, max_messages_per_day, strategy, next_wake_at
+           ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULL)
+           ON CONFLICT (tenant_id, user_character_id)
+           DO UPDATE SET
+             enabled = EXCLUDED.enabled,
+             max_messages_per_day = EXCLUDED.max_messages_per_day,
+             strategy = wake_preferences.strategy || EXCLUDED.strategy,
+             next_wake_at = CASE
+               WHEN EXCLUDED.enabled = false THEN NULL
+               ELSE wake_preferences.next_wake_at
+             END,
+             updated_at = NOW()
+           RETURNING *`,
+          [
+            input.tenantId,
+            input.userId,
+            input.userCharacterId,
+            enabled,
+            maxMessagesPerDay,
+            JSON.stringify(strategyPatch),
+          ]
+        );
+        return result.rows[0] ? mapWakePreference(result.rows[0]) : null;
+      },
+      options
+    );
+  }
+
   async #finish(input, status, options) {
     assertTenantId(input?.tenantId);
     assertUuid(input?.jobId, "jobId");
@@ -229,6 +317,36 @@ function mapWakeJob(row) {
   };
 }
 
+function mapWakePreference(row) {
+  return {
+    id: row.id,
+    tenantId: row.tenant_id,
+    userId: row.user_id,
+    userCharacterId: row.user_character_id,
+    enabled: Boolean(row.enabled),
+    timezone: row.timezone,
+    quietStart: row.quiet_start,
+    quietEnd: row.quiet_end,
+    minIntervalMinutes: row.min_interval_minutes,
+    maxIntervalMinutes: row.max_interval_minutes,
+    minimumGapMinutes: row.minimum_gap_minutes,
+    maxMessagesPerDay: row.max_messages_per_day,
+    strategy: row.strategy || {},
+    lastWakeAt: row.last_wake_at,
+    nextWakeAt: row.next_wake_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function normalizeDailyLimit(value) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_USER_DAILY_PROACTIVE_LIMIT) {
+    throw new Error(`maxMessagesPerDay must be between 0 and ${MAX_USER_DAILY_PROACTIVE_LIMIT}`);
+  }
+  return parsed;
+}
+
 function normalizeDate(value) {
   if (!value) {
     return null;
@@ -261,4 +379,8 @@ function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
-module.exports = { WakeJobRepository };
+module.exports = {
+  DEFAULT_DAILY_PROACTIVE_LIMIT,
+  MAX_USER_DAILY_PROACTIVE_LIMIT,
+  WakeJobRepository,
+};
