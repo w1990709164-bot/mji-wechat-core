@@ -38,15 +38,17 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
 
     if (isSuccessfulDelivery && reservation && !reservation.captured) {
       try {
+        const source = normalizeText(reservation.context.source) || "chat";
         const captured = await billing.captureCredits({
           tenantId: reservation.context.tenantId,
           userId: reservation.context.userId,
           credits: reservation.credits,
           referenceKey: reservation.referenceKey,
-          description: "Charge for successful AI reply",
+          description: source === "wake" ? "主动消息消费" : "Charge for successful AI reply",
           metadata: {
             threadId,
             turnId,
+            source,
             provider: base.describe().modelProvider,
             model: base.describe().model,
             streamed: event?.type === "runtime.reply.delivery",
@@ -58,7 +60,7 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
         reservation.captured = true;
         reservation.wallet = captured.wallet;
         console.log(
-          `[mji] charged user=${reservation.context.userId} credits=${reservation.credits} balance=${captured.wallet.balanceCredits}`
+          `[mji] charged user=${reservation.context.userId} source=${source} credits=${reservation.credits} balance=${captured.wallet.balanceCredits}`
         );
       } catch (error) {
         blockedRunKeys.add(runKey);
@@ -75,15 +77,19 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
     }
 
     if (event?.type === "runtime.turn.failed" && reservation && !reservation.captured) {
+      const source = normalizeText(reservation.context.source) || "chat";
       await billing.releaseCredits({
         tenantId: reservation.context.tenantId,
         userId: reservation.context.userId,
         credits: reservation.credits,
         referenceKey: reservation.referenceKey,
-        description: "Release credits after failed AI reply",
+        description: source === "wake"
+          ? "主动消息生成失败，释放预留额度"
+          : "Release credits after failed AI reply",
         metadata: {
           threadId,
           turnId,
+          source,
           reason: normalizeText(event?.payload?.text),
         },
       }).catch((error) => {
@@ -140,14 +146,18 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
         return base.sendTurn(args);
       }
 
-      const referenceKey = `reply-${crypto.randomUUID()}`;
+      const source = normalizeText(context.source) || "chat";
+      const referenceKey = `${source === "wake" ? "wake-reply" : "reply"}-${crypto.randomUUID()}`;
       const reserved = await billing.reserveCredits({
         tenantId: context.tenantId,
         userId: context.userId,
         credits: chargeCredits,
         referenceKey,
-        description: "Reserve credits for AI reply",
+        description: source === "wake"
+          ? "为主动消息预留额度"
+          : "Reserve credits for AI reply",
         metadata: {
+          source,
           provider: base.describe().modelProvider,
           model: normalizeText(args.model) || base.describe().model,
           senderId: normalizeText(args.metadata?.senderId),
@@ -176,8 +186,10 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
           userId: context.userId,
           credits: chargeCredits,
           referenceKey,
-          description: "Release credits because request did not start",
-          metadata: { error: formatError(error) },
+          description: source === "wake"
+            ? "主动消息未启动，释放预留额度"
+            : "Release credits because request did not start",
+          metadata: { source, error: formatError(error) },
         }).catch(() => {});
         throw error;
       }
