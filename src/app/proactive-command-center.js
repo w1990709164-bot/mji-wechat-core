@@ -14,6 +14,11 @@ async function handleProactiveCommandMessage(options = {}) {
   const parsed = parseProactiveCommand(options.text);
   if (!parsed) return { handled: false };
 
+  if (parsed.command === "help") {
+    await options.sendText(formatHelpText());
+    return { handled: true, command: "help" };
+  }
+
   const context = options.context || {};
   const wakeJobs = options.storage?.wakeJobs;
   if (!wakeJobs) {
@@ -117,6 +122,9 @@ function parseProactiveCommand(value) {
   const compact = raw.replace(/\s+/g, "");
   if (!compact) return null;
 
+  if (["帮助", "菜单", "功能"].includes(compact)) {
+    return { command: "help" };
+  }
   if (["主动消息", "主动设置", "主动频率", "主动上限", "免打扰", "勿扰设置"].includes(compact)) {
     return { command: "show" };
   }
@@ -180,6 +188,26 @@ async function getPreference(wakeJobs, context) {
     userId: context.userId,
     userCharacterId: context.userCharacterId,
   });
+}
+
+function formatHelpText() {
+  return [
+    "M叽 · 用户自助中心",
+    "",
+    "可发送以下命令：",
+    "• 余额 / 消费记录",
+    "• 充值 / 充值 1 / 充值记录",
+    "• 设置人设 / 查看人设 / 查看记忆",
+    "• 主动消息 —— 查看主动消息设置",
+    "• 主动消息 20 —— 自行设置每天次数",
+    "• 主动间隔 90分钟 / 主动间隔 2小时",
+    "• 免打扰 23:30-08:00",
+    "• 关闭免打扰 / 开启免打扰",
+    "• 关闭主动 / 开启主动",
+    "• 暂停服务 / 恢复服务",
+    "",
+    "查询与设置命令均在本地处理，不调用模型，也不扣额度。",
+  ].join("\n");
 }
 
 function formatPreference(preference) {
