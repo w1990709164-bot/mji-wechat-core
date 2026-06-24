@@ -365,7 +365,6 @@ function normalizeText(value) {
 }
 
 main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error || "未知错误");
-  console.error(`\n操作失败：${message}\n`);
+  console.error(`管理员操作失败：${error instanceof Error ? error.stack || error.message : error}`);
   process.exitCode = 1;
 });
