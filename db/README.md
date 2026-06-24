@@ -10,6 +10,32 @@
 
 1. `db/migrations/001_initial_schema.sql`
 2. `db/migrations/002_fix_optional_fk_delete_actions.sql`
+3. `db/migrations/003_conversation_message_idempotency.sql`
+4. `db/migrations/004_user_wallet_billing.sql`
+5. `db/migrations/005_recharge_packages_and_orders.sql`
+6. `db/migrations/006_fix_default_recharge_credit_conversion.sql`
+
+充值迁移可直接运行：
+
+```powershell
+node .\scripts\mji-migrate-recharge.js
+```
+
+充值额度换算规则：
+
+```text
+1 额度 = 0.005 元
+用户每次正常回复扣 10 额度
+模型侧单次调用成本约 4.5 额度
+```
+
+默认套餐为：
+
+```text
+10 元 = 2000 额度 = 约 200 次正常回复
+30 元 = 6000 额度 = 约 600 次正常回复
+50 元 = 10000 额度 = 约 1000 次正常回复
+```
 
 ## 核心数据链
 
@@ -46,6 +72,8 @@ tenants
 | `wake_jobs` | 等待执行的主动消息任务。 |
 | `subscriptions` | 套餐、有效期和额度。 |
 | `usage_records` | 模型调用和成本统计。 |
+| `recharge_packages` | 可售充值套餐、价格和到账额度。 |
+| `recharge_orders` | 用户充值订单、状态和到账记录。 |
 | `audit_events` | 管理和敏感操作审计。 |
 
 ## 身份必须分层

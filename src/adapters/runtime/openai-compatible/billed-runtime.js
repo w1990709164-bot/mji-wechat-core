@@ -157,7 +157,7 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
       if (!reserved?.ok) {
         const available = Number(reserved?.availableCredits ?? reserved?.wallet?.availableCredits ?? 0);
         throw new Error(
-          `余额不足：本次需要 ${formatCredits(chargeCredits)} 额度，当前可用 ${formatCredits(available)} 额度。`
+          `余额不足：本次需要 ${formatCredits(chargeCredits)} 额度，当前可用 ${formatCredits(available)} 额度。发送「充值」查看套餐。`
         );
       }
 
