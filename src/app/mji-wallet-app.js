@@ -31,6 +31,15 @@ class MjiWalletApp extends MjiOpenAIApp {
           limit,
         });
       },
+      loadPersona: async (context) => {
+        if (typeof this.mjiStorage?.personas?.getSelected !== "function") {
+          return null;
+        }
+        return this.mjiStorage.personas.getSelected({
+          tenantId: context.tenantId,
+          userId: context.userId,
+        });
+      },
       loadMemories: async (context, settings = {}) => {
         if (typeof this.mjiStorage?.memories?.listRelevant !== "function") {
           return [];
@@ -95,6 +104,25 @@ class MjiWalletApp extends MjiOpenAIApp {
           console.error(`[mji] runtime event handling failed type=${event?.type || "(unknown)"} ${message}`);
         });
     });
+  }
+
+  async handleRuntimeEvent(event) {
+    if (event?.type === "runtime.reply.delivery") {
+      return super.handleRuntimeEvent({
+        ...event,
+        type: "runtime.reply.completed",
+        payload: {
+          ...(event.payload || {}),
+          rawText: undefined,
+        },
+      });
+    }
+
+    if (event?.type === "runtime.reply.completed" && event?.payload?.deliveryHandled) {
+      return;
+    }
+
+    return super.handleRuntimeEvent(event);
   }
 }
 

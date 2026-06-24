@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>M叽管理员总后台</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090b10;--panel:#151923;--line:rgba(255,255,255,.1);--text:#f7f8fb;--muted:#9aa3b5;--accent:#8b7cff;--ok:#48d59a;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{overflow:hidden}.shell{height:100vh;display:grid;grid-template-rows:auto 1fr}.header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 20px;border-bottom:1px solid var(--line);background:rgba(9,11,16,.92);backdrop-filter:blur(18px)}.brand{display:flex;align-items:center;gap:12px;min-width:220px}.logo{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#5c50d8);font-weight:900;box-shadow:0 10px 26px rgba(139,124,255,.32)}.brand h1{margin:0;font-size:17px}.brand p{margin:3px 0 0;color:var(--muted);font-size:11px}.nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}.nav button{border:1px solid var(--line);background:#121620;color:var(--muted);border-radius:12px;padding:10px 14px;font:inherit;font-weight:800;cursor:pointer;transition:.18s}.nav button:hover{border-color:rgba(139,124,255,.5);color:var(--text)}.nav button.active{background:rgba(139,124,255,.16);border-color:rgba(139,124,255,.48);color:#fff}.status{min-width:220px;text-align:right;color:var(--ok);font-size:12px}.frame-wrap{min-height:0;background:var(--bg)}iframe{display:block;width:100%;height:100%;border:0;background:var(--bg)}@media(max-width:820px){body{overflow:auto}.shell{height:auto;min-height:100vh;grid-template-rows:auto minmax(760px,1fr)}.header{align-items:flex-start;flex-direction:column}.brand,.status{min-width:0}.status{text-align:left}.nav{justify-content:flex-start;width:100%}.nav button{flex:1;min-width:110px}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header class="header">
+      <div class="brand">
+        <div class="logo">M叽</div>
+        <div><h1>管理员总后台</h1><p>__TENANT_NAME__ · 一个窗口管理全部功能</p></div>
+      </div>
+      <nav class="nav" aria-label="管理员功能选择">
+        <button type="button" data-page="wallet" class="active">余额管理</button>
+        <button type="button" data-page="persona">人设管理</button>
+        <button type="button" data-page="onboard">扫码接入</button>
+      </nav>
+      <div class="status">● 仅本机可访问</div>
+    </header>
+    <div class="frame-wrap"><iframe id="contentFrame" src="/wallet" title="管理员功能页面"></iframe></div>
+  </div>
+  <script>
+    const frame=document.getElementById('contentFrame');
+    const buttons=[...document.querySelectorAll('[data-page]')];
+    const labels={wallet:'余额管理',persona:'人设管理',onboard:'扫码接入'};
+    function openPage(page,{push=true}={}){
+      if(!labels[page])page='wallet';
+      buttons.forEach(button=>button.classList.toggle('active',button.dataset.page===page));
+      frame.src=`/${page}`;
+      frame.title=labels[page];
+      if(push)history.replaceState(null,'',`#${page}`);
+    }
+    buttons.forEach(button=>button.addEventListener('click',()=>openPage(button.dataset.page)));
+    const initial=location.hash.replace('#','').trim();
+    if(initial&&labels[initial])openPage(initial,{push:false});
+  </script>
+</body>
+</html>

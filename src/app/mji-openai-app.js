@@ -5,6 +5,7 @@ const { MjiApp } = require("./mji-app");
 const { StreamDelivery } = require("../core/stream-delivery");
 const { ThreadStateStore } = require("../core/thread-state-store");
 const { createOpenAICompatibleRuntimeAdapter } = require("../adapters/runtime/openai-compatible");
+const { handlePersonaWizardMessage } = require("./persona-wizard");
 
 class MjiOpenAIApp extends MjiApp {
   constructor(config) {
@@ -47,11 +48,18 @@ class MjiOpenAIApp extends MjiApp {
   }
 
   async handlePreparedMessage(normalized, options) {
-    if (!this.mjiStorage || !this.mjiTenant || !this.mjiChannelAccount || !this.mjiStorage.chats) {
+    if (
+      !this.mjiStorage
+      || !this.mjiTenant
+      || !this.mjiChannelAccount
+      || !this.mjiStorage.chats
+      || !this.mjiStorage.personas
+    ) {
       return super.handlePreparedMessage(normalized, options);
     }
 
     try {
+      const trialCredits = resolveNewUserTrialCredits();
       const identity = await this.mjiStorage.users.resolveOrCreateByChannelIdentity({
         tenantId: this.mjiTenant.id,
         channelAccountId: this.mjiChannelAccount.id,
@@ -62,12 +70,16 @@ class MjiOpenAIApp extends MjiApp {
         locale: "zh-CN",
         profile: {
           source: "weixin",
+          trialCreditsPending: trialCredits > 0,
+          trialCreditsPolicy: trialCredits > 0 ? "signup-v1" : null,
         },
         identityMetadata: {
           lastMessageId: normalized.messageId || null,
           lastThreadKey: normalized.threadKey || null,
         },
       });
+
+      await this.ensureNewUserTrialCredits(identity, trialCredits);
 
       const chat = await this.mjiStorage.chats.ensureDefaultChatContext({
         tenantId: this.mjiTenant.id,
@@ -98,6 +110,49 @@ class MjiOpenAIApp extends MjiApp {
         senderId: normalized.senderId,
       };
       this.mjiContextByBindingKey.set(bindingKey, context);
+
+      const persona = await this.mjiStorage.personas.getSelected({
+        tenantId: this.mjiTenant.id,
+        userId: identity.userId,
+      });
+      const wizard = await handlePersonaWizardMessage({
+        text: normalized.text,
+        profile: identity.profile,
+        persona,
+        updateProfile: async (profilePatch) => {
+          const updated = await this.mjiStorage.users.updateProfile({
+            tenantId: this.mjiTenant.id,
+            userId: identity.userId,
+            profilePatch,
+          });
+          identity.profile = updated?.profile || {
+            ...(identity.profile || {}),
+            ...profilePatch,
+          };
+          return identity.profile;
+        },
+        savePersona: (input) => this.mjiStorage.personas.updateSelected({
+          tenantId: this.mjiTenant.id,
+          userId: identity.userId,
+          ...input,
+        }),
+        sendText: (text) => this.channelAdapter.sendText({
+          userId: normalized.senderId,
+          contextToken: normalized.contextToken,
+          text,
+          preserveBlock: true,
+        }),
+      });
+
+      if (wizard.handled) {
+        console.log(
+          `[mji] local persona wizard user=${identity.userId} finished=${Boolean(wizard.finished)} apiCalled=false creditsCharged=0`
+        );
+        if (identity.created) {
+          console.log(`[mji] created user=${identity.userId} provider=weixin`);
+        }
+        return true;
+      }
 
       await this.mjiStorage.chats.appendMessage({
         ...context,
@@ -136,6 +191,58 @@ class MjiOpenAIApp extends MjiApp {
       }).catch(() => {});
       return false;
     }
+  }
+
+  async ensureNewUserTrialCredits(identity, credits = resolveNewUserTrialCredits()) {
+    if (!this.mjiStorage?.billing || !this.mjiStorage?.users || credits <= 0) {
+      return null;
+    }
+
+    const profile = identity?.profile && typeof identity.profile === "object"
+      ? identity.profile
+      : {};
+    const shouldGrant = Boolean(identity?.created) || profile.trialCreditsPending === true;
+    if (!shouldGrant || !identity?.userId) {
+      return null;
+    }
+
+    const result = await this.mjiStorage.billing.topUpCredits({
+      tenantId: this.mjiTenant.id,
+      userId: identity.userId,
+      credits,
+      referenceKey: `new-user-trial:${identity.userId}`,
+      description: "新用户试用额度",
+      metadata: {
+        source: "new_user_trial",
+        policy: "signup-v1",
+        provider: "weixin",
+      },
+    });
+
+    const grantedAt = new Date().toISOString();
+    await this.mjiStorage.users.updateProfile({
+      tenantId: this.mjiTenant.id,
+      userId: identity.userId,
+      profilePatch: {
+        trialCreditsPending: false,
+        trialCreditsPolicy: "signup-v1",
+        trialCreditsAmount: credits,
+        trialCreditsGrantedAt: grantedAt,
+      },
+    });
+
+    identity.profile = {
+      ...profile,
+      trialCreditsPending: false,
+      trialCreditsPolicy: "signup-v1",
+      trialCreditsAmount: credits,
+      trialCreditsGrantedAt: grantedAt,
+    };
+
+    console.log(
+      `[mji] new user trial credits user=${identity.userId} credits=${credits} duplicate=${Boolean(result?.duplicate)}`
+    );
+    return result;
   }
 
   resolveMjiContextForThread(threadId) {
@@ -270,6 +377,19 @@ function calculateBilling(usage) {
       + usage.outputTokens * outputRate
     )),
   };
+}
+
+function resolveNewUserTrialCredits() {
+  const raw = process.env.MJI_NEW_USER_TRIAL_CREDITS;
+  if (raw == null || String(raw).trim() === "") {
+    return 100;
+  }
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    console.warn("[mji] invalid MJI_NEW_USER_TRIAL_CREDITS, using default 100");
+    return 100;
+  }
+  return Math.round(parsed * 1000) / 1000;
 }
 
 function nonNegativeInt(value) {

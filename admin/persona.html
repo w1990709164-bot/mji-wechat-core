@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="mji-admin-token" content="__ADMIN_TOKEN__" />
+  <title>M叽用户人设管理</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0d12;--panel:#171a23;--line:rgba(255,255,255,.1);--text:#f6f7fb;--muted:#9ba3b4;--accent:#8b7cff;--ok:#48d59a;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 10% 0%,rgba(139,124,255,.18),transparent 30%),var(--bg);color:var(--text)}button,input,textarea,select{font:inherit}.app{min-height:100vh;display:grid;grid-template-columns:320px 1fr}.side{border-right:1px solid var(--line);padding:22px 16px;display:flex;flex-direction:column;gap:16px}.brand{font-size:20px;font-weight:800}.sub{color:var(--muted);font-size:12px;margin-top:4px}.search{width:100%;padding:11px 12px;border-radius:12px;border:1px solid var(--line);background:var(--panel);color:var(--text)}.users{display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:calc(100vh - 150px)}.user{width:100%;text-align:left;border:1px solid transparent;border-radius:14px;padding:11px;background:transparent;color:var(--text)}.user:hover,.user.active{background:rgba(139,124,255,.12);border-color:rgba(139,124,255,.35)}.name{font-weight:700}.mini{color:var(--muted);font-size:11px;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.main{padding:30px}.head{display:flex;justify-content:space-between;gap:20px;margin-bottom:18px}.head h1{margin:0;font-size:28px}.pill{color:var(--ok);border:1px solid rgba(72,213,154,.28);background:rgba(72,213,154,.08);padding:8px 12px;border-radius:999px;font-size:12px}.empty{min-height:65vh;display:grid;place-items:center;color:var(--muted);border:1px dashed var(--line);border-radius:22px}.content{display:none}.content.show{display:block}.profile,.panel{background:rgba(23,26,35,.92);border:1px solid var(--line);border-radius:20px;padding:18px}.profile{margin-bottom:16px}.profile h2{margin:0 0 6px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.field.full{grid-column:1/-1}.field label{display:block;color:var(--muted);font-size:12px;margin-bottom:6px}.field input,.field textarea,.field select{width:100%;border:1px solid var(--line);border-radius:12px;background:#11141b;color:var(--text);padding:11px 12px;outline:none}.field textarea{min-height:100px;resize:vertical;line-height:1.6}.field textarea.large{min-height:145px}.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}.primary,.secondary{border-radius:12px;padding:11px 16px;font-weight:800}.primary{border:0;background:linear-gradient(135deg,var(--accent),#6659dc);color:#fff}.secondary{border:1px solid var(--line);background:#11141b;color:var(--text)}.toast{position:fixed;right:20px;bottom:20px;background:#20242e;border:1px solid var(--line);border-radius:13px;padding:13px 15px;opacity:0;transform:translateY(20px);transition:.2s}.toast.show{opacity:1;transform:none}@media(max-width:900px){.app{grid-template-columns:1fr}.side{border-right:0;border-bottom:1px solid var(--line)}.users{max-height:240px}.grid{grid-template-columns:1fr}.field.full{grid-column:auto}.main{padding:20px 14px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div><div class="brand">M叽用户人设</div><div class="sub">__TENANT_NAME__ · 本机管理员窗口</div></div>
+    <input id="search" class="search" placeholder="搜索昵称、微信ID、UUID" />
+    <div id="users" class="users"></div>
+  </aside>
+  <main class="main">
+    <div class="head"><div><h1>专属人设</h1><div class="sub">保存后只影响当前用户，从下一轮回复开始生效。</div></div><div class="pill">● 用户独立隔离</div></div>
+    <section id="empty" class="empty">请选择左侧用户</section>
+    <section id="content" class="content">
+      <div class="profile"><h2 id="profileName">微信用户</h2><div id="profileMeta" class="sub"></div></div>
+      <div class="panel">
+        <div class="grid">
+          <div class="field"><label>机器人名字</label><input id="characterAlias" maxlength="120" placeholder="例如：Ghost、König、M叽" /></div>
+          <div class="field"><label>机器人如何称呼用户</label><input id="userAlias" maxlength="120" placeholder="例如：Moon、长官" /></div>
+          <div class="field"><label>关系阶段</label><select id="relationshipStage"><option value="stranger">陌生</option><option value="acquaintance">认识</option><option value="familiar">熟悉</option><option value="close">亲密</option><option value="ambiguous">暧昧</option><option value="partner">伴侣</option><option value="committed">稳定关系</option><option value="custom">自定义</option></select></div>
+          <div class="field"><label>身份定位</label><input id="role" maxlength="240" placeholder="例如：沉默寡言的特种兵" /></div>
+          <div class="field full"><label>性格</label><textarea id="personality" maxlength="1200" placeholder="写具体性格和行为方式"></textarea></div>
+          <div class="field full"><label>说话方式</label><textarea id="speakingStyle" maxlength="1200" placeholder="例如：短句、自然口语、偶尔冷幽默"></textarea></div>
+          <div class="field full"><label>与用户的关系要求</label><textarea id="relationship" maxlength="800"></textarea></div>
+          <div class="field full"><label>背景故事</label><textarea id="background" class="large" maxlength="1600"></textarea></div>
+          <div class="field full"><label>边界和禁区</label><textarea id="boundaries" maxlength="1200"></textarea></div>
+          <div class="field full"><label>额外专属指令</label><textarea id="extraPrompt" class="large" maxlength="3000"></textarea></div>
+        </div>
+        <div class="actions"><button id="reset" class="secondary">清空专属人设</button><button id="save" class="primary">保存该用户人设</button></div>
+      </div>
+    </section>
+  </main>
+</div>
+<div id="toast" class="toast"></div>
+<script>
+const token=document.querySelector('meta[name="mji-admin-token"]').content;
+const state={users:[],selectedId:'',selectedUser:null};
+const $=id=>document.getElementById(id);
+async function api(path,options={}){const r=await fetch(path,{...options,headers:{'Content-Type':'application/json','X-MJI-Admin-Token':token,...(options.headers||{})}});const p=await r.json().catch(()=>({}));if(!r.ok||p.ok===false)throw new Error(p.error||`请求失败（${r.status}）`);return p}
+function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')}
+function toast(msg){$('toast').textContent=msg;$('toast').classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').classList.remove('show'),3200)}
+async function loadUsers(){const p=await api('/api/users');state.users=p.users||[];renderUsers();if(!state.selectedId&&state.users[0])selectUser(state.users[0].id)}
+function renderUsers(){const q=$('search').value.trim().toLowerCase();const list=state.users.filter(u=>!q||[u.nickname,u.displayName,u.providerUserId,u.id,u.characterAlias,u.personaName].filter(Boolean).some(v=>String(v).toLowerCase().includes(q)));$('users').innerHTML=list.map(u=>`<button class="user ${u.id===state.selectedId?'active':''}" data-id="${esc(u.id)}"><div class="name">${esc(u.nickname||u.displayName||'微信用户')}</div><div class="mini">${esc(u.providerUserId||u.id)}</div><div class="mini">人设：${esc(u.personaName||u.characterAlias||'基础人设')}</div></button>`).join('')||'<div class="mini">没有匹配用户</div>'}
+async function selectUser(id){state.selectedId=id;renderUsers();try{const p=await api(`/api/users/${encodeURIComponent(id)}/persona`);state.selectedUser=p.user;$('empty').style.display='none';$('content').classList.add('show');$('profileName').textContent=p.user.nickname||p.user.displayName||'微信用户';$('profileMeta').textContent=`微信ID：${p.user.providerUserId||'未记录'} · 用户UUID：${p.user.id}`;fill(p.persona)}catch(e){toast(e.message)}}
+function fill(p){const x=p?.preferences||{};$('characterAlias').value=p?.characterAlias||x.personaName||'';$('userAlias').value=p?.userAlias||'';$('relationshipStage').value=p?.relationshipStage||'stranger';$('role').value=x.role||'';$('personality').value=x.personality||'';$('speakingStyle').value=x.speakingStyle||'';$('relationship').value=x.relationship||'';$('background').value=x.background||'';$('boundaries').value=x.boundaries||'';$('extraPrompt').value=x.extraPrompt||''}
+function clearForm(){$('characterAlias').value='';$('userAlias').value='';$('relationshipStage').value='stranger';$('role').value='';$('personality').value='';$('speakingStyle').value='';$('relationship').value='';$('background').value='';$('boundaries').value='';$('extraPrompt').value=''}
+function form(){return{characterAlias:$('characterAlias').value.trim(),personaName:$('characterAlias').value.trim(),userAlias:$('userAlias').value.trim(),relationshipStage:$('relationshipStage').value,role:$('role').value.trim(),personality:$('personality').value.trim(),speakingStyle:$('speakingStyle').value.trim(),relationship:$('relationship').value.trim(),background:$('background').value.trim(),boundaries:$('boundaries').value.trim(),extraPrompt:$('extraPrompt').value.trim()}}
+async function save(){if(!state.selectedId)return;const b=$('save');b.disabled=true;b.textContent='正在保存……';try{const p=await api(`/api/users/${encodeURIComponent(state.selectedId)}/persona`,{method:'POST',body:JSON.stringify(form())});fill(p.persona);const u=state.users.find(v=>v.id===state.selectedId);if(u){u.characterAlias=p.persona.characterAlias;u.personaName=p.persona.preferences?.personaName||''}renderUsers();toast('保存成功，下次回复开始生效')}catch(e){toast(e.message)}finally{b.disabled=false;b.textContent='保存该用户人设'}}
+$('users').addEventListener('click',e=>{const b=e.target.closest('[data-id]');if(b)selectUser(b.dataset.id)});$('search').addEventListener('input',renderUsers);$('save').addEventListener('click',save);$('reset').addEventListener('click',()=>{if(confirm('确认清空当前用户的专属人设吗？')){clearForm();save()}});loadUsers().catch(e=>toast(e.message));
+</script>
+</body>
+</html>
