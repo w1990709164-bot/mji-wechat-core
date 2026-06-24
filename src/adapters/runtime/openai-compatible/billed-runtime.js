@@ -2,6 +2,7 @@
 
 const crypto = require("crypto");
 const { createOpenAICompatibleRuntimeAdapter } = require("./index");
+const { withTenantTransaction } = require("../../../storage/postgres/tenant-transaction");
 
 function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
   const base = createOpenAICompatibleRuntimeAdapter(config);
@@ -176,7 +177,6 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
         provider: base.describe().modelProvider,
         model: base.describe().model,
         streamed: Boolean(details.streamed),
-        wakeJobId: normalizeText(reservation.context.wakeJobId),
       },
     });
     if (!captured?.ok) {
@@ -205,7 +205,6 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
         turnId: details.turnId,
         source: details.source,
         reason: details.reason,
-        wakeJobId: normalizeText(reservation.context.wakeJobId),
       },
     }).catch((error) => {
       console.error(`[mji] release reservation failed: ${formatError(error)}`);
@@ -215,11 +214,80 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
   async function notifyWakeOutcome(reservation, outcome) {
     if (reservation.wakeOutcomeNotified) return;
     reservation.wakeOutcomeNotified = true;
+    await persistWakeOutcome(reservation.context, outcome);
     await Promise.resolve(onWakeOutcome({
       context: reservation.context,
       ...outcome,
     })).catch((error) => {
       console.error(`[mji] wake outcome callback failed: ${formatError(error)}`);
+    });
+  }
+
+  async function persistWakeOutcome(context, outcome) {
+    if (!billing?.pool || !context?.tenantId || !context?.userId || !context?.userCharacterId) {
+      return;
+    }
+    await withTenantTransaction(
+      billing.pool,
+      context.tenantId,
+      async (client) => {
+        const targetResult = await client.query(
+          `SELECT id
+           FROM wake_jobs
+           WHERE tenant_id = $1
+             AND user_id = $2
+             AND user_character_id = $3
+             AND reason = 'proactive_companion'
+             AND created_at >= NOW() - INTERVAL '15 minutes'
+           ORDER BY created_at DESC
+           LIMIT 1
+           FOR UPDATE`,
+          [context.tenantId, context.userId, context.userCharacterId]
+        );
+        const jobId = targetResult.rows[0]?.id;
+        if (!jobId) return;
+
+        const nextStatus = outcome.status === "sent"
+          ? "sent"
+          : outcome.status === "skipped"
+            ? "skipped"
+            : "failed";
+        await client.query(
+          `UPDATE wake_jobs
+           SET status = $4,
+               error_message = CASE WHEN $4 = 'failed' THEN $5 ELSE NULL END,
+               finished_at = NOW(),
+               locked_at = NULL,
+               locked_by = NULL,
+               updated_at = NOW()
+           WHERE tenant_id = $1
+             AND id = $2
+             AND user_id = $3`,
+          [
+            context.tenantId,
+            jobId,
+            context.userId,
+            nextStatus,
+            normalizeText(outcome.reason).slice(0, 4000),
+          ]
+        );
+        if (nextStatus === "sent") {
+          await client.query(
+            `UPDATE wake_preferences
+             SET last_wake_at = NOW(), updated_at = NOW()
+             WHERE tenant_id = $1
+               AND user_id = $2
+               AND user_character_id = $3`,
+            [context.tenantId, context.userId, context.userCharacterId]
+          );
+        }
+        console.log(
+          `[mji-proactive] outcome job=${jobId} status=${nextStatus} reason=${normalizeText(outcome.reason) || "-"}`
+        );
+      },
+      { userId: context.userId }
+    ).catch((error) => {
+      console.error(`[mji] persist wake outcome failed: ${formatError(error)}`);
     });
   }
 
@@ -271,7 +339,6 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
           provider: base.describe().modelProvider,
           model: normalizeText(args.model) || base.describe().model,
           senderId: normalizeText(args.metadata?.senderId),
-          wakeJobId: normalizeText(context.wakeJobId),
         },
       });
 
@@ -303,20 +370,15 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
           description: source === "wake"
             ? "主动消息未启动，释放预留额度"
             : "Release credits because request did not start",
-          metadata: {
-            source,
-            error: formatError(error),
-            wakeJobId: normalizeText(context.wakeJobId),
-          },
+          metadata: { source, error: formatError(error) },
         }).catch(() => {});
         if (source === "wake") {
-          await Promise.resolve(onWakeOutcome({
-            context,
+          await persistWakeOutcome(context, {
             status: "failed",
             reason: formatError(error),
             threadId: "",
             turnId: "",
-          })).catch(() => {});
+          });
         }
         throw error;
       }
