@@ -5,6 +5,7 @@ const { StreamDelivery } = require("../core/stream-delivery");
 const { ThreadStateStore } = require("../core/thread-state-store");
 const { createReliableMemoryRuntimeAdapter } = require("../adapters/runtime/openai-compatible/reliable-memory-runtime");
 const { handleUserCommandMessage } = require("./user-command-center");
+const { handleProactiveCommandMessage } = require("./proactive-command-center");
 const { ProactiveCompanionService } = require("../services/proactive-companion-service");
 
 class MjiWalletApp extends MjiOpenAIApp {
@@ -115,6 +116,7 @@ class MjiWalletApp extends MjiOpenAIApp {
     const explicitRuntime = normalizeText(process.env.CYBERBOSS_RUNTIME).toLowerCase();
     if (
       result
+      && !this.proactiveCompanionService
       && explicitRuntime !== "codex"
       && explicitRuntime !== "claudecode"
       && this.mjiStorage?.wakeJobs
@@ -255,6 +257,26 @@ class MjiWalletApp extends MjiOpenAIApp {
       };
       this.mjiContextByBindingKey.set(bindingKey, context);
 
+      const sendLocalText = (text) => this.channelAdapter.sendText({
+        userId: normalized.senderId,
+        contextToken: normalized.contextToken,
+        text,
+        preserveBlock: true,
+      });
+
+      const proactiveCommandResult = await handleProactiveCommandMessage({
+        text: normalized.text,
+        context,
+        storage: this.mjiStorage,
+        sendText: sendLocalText,
+      });
+      if (proactiveCommandResult.handled) {
+        console.log(
+          `[mji] local proactive command user=${identity.userId} command=${proactiveCommandResult.command} apiCalled=false creditsCharged=0`
+        );
+        return true;
+      }
+
       const persona = await this.mjiStorage.personas.getSelected({
         tenantId: this.mjiTenant.id,
         userId: identity.userId,
@@ -278,12 +300,7 @@ class MjiWalletApp extends MjiOpenAIApp {
           };
           return identity.profile;
         },
-        sendText: (text) => this.channelAdapter.sendText({
-          userId: normalized.senderId,
-          contextToken: normalized.contextToken,
-          text,
-          preserveBlock: true,
-        }),
+        sendText: sendLocalText,
       });
 
       if (commandResult.handled) {
