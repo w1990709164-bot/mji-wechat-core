@@ -12,6 +12,7 @@ async function withTenantTransaction(pool, tenantId, callback, options = {}) {
   const client = options.client || await pool.connect();
   const ownsClient = !options.client;
   let began = false;
+  let transactionError = null;
 
   try {
     if (!options.client) {
@@ -38,20 +39,31 @@ async function withTenantTransaction(pool, tenantId, callback, options = {}) {
     }
     return result;
   } catch (error) {
-    if (began) {
+    transactionError = error;
+    const connectionBroken = isPostgresConnectionError(error);
+    if (began && !connectionBroken) {
       try {
         await client.query("ROLLBACK");
       } catch (rollbackError) {
+        transactionError = isPostgresConnectionError(rollbackError)
+          ? rollbackError
+          : transactionError;
         const rollbackMessage = rollbackError instanceof Error
           ? rollbackError.message
           : String(rollbackError);
         console.error(`[mji] PostgreSQL rollback failed: ${rollbackMessage}`);
       }
+    } else if (began && connectionBroken) {
+      console.warn("[mji] PostgreSQL connection was already broken; skipped rollback and discarded the client.");
     }
     throw error;
   } finally {
     if (ownsClient && typeof client.release === "function") {
-      client.release();
+      if (isPostgresConnectionError(transactionError)) {
+        client.release(transactionError);
+      } else {
+        client.release();
+      }
     }
   }
 }
@@ -61,6 +73,34 @@ async function withTenantClient(pool, tenantId, callback, options = {}) {
     return withTenantTransaction(pool, tenantId, callback, options);
   }
   return withTenantTransaction(pool, tenantId, callback, options);
+}
+
+function isPostgresConnectionError(error) {
+  if (!error) return false;
+  const code = String(error.code || "").toUpperCase();
+  if (
+    code.startsWith("08")
+    || ["57P01", "57P02", "57P03", "ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ENETUNREACH", "EHOSTUNREACH"].includes(code)
+  ) {
+    return true;
+  }
+  const message = String(error.message || error).toLowerCase();
+  if (
+    message.includes("connection terminated unexpectedly")
+    || message.includes("connection terminated")
+    || message.includes("client has encountered a connection error")
+    || message.includes("client is not queryable")
+    || message.includes("server closed the connection unexpectedly")
+    || message.includes("terminating connection due to administrator command")
+    || message.includes("socket hang up")
+    || message.includes("read econnreset")
+    || message.includes("connect econnrefused")
+  ) {
+    return true;
+  }
+  return error.cause && error.cause !== error
+    ? isPostgresConnectionError(error.cause)
+    : false;
 }
 
 function assertTenantId(tenantId) {
@@ -85,6 +125,7 @@ module.exports = {
   UUID_PATTERN,
   assertTenantId,
   assertUuid,
+  isPostgresConnectionError,
   withTenantClient,
   withTenantTransaction,
 };
