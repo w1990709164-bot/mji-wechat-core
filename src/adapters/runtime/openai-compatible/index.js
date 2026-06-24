@@ -6,6 +6,8 @@ const { loadWechatInstructions, buildInstructionRefreshText } = require("../shar
 
 const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_HISTORY_MESSAGES = 30;
+const PRIVATE_MEMORY_TAG = "<mji_memory_updates>";
+const STREAM_UNSUPPORTED_STATUSES = new Set([400, 404, 405, 415, 422]);
 
 function createOpenAICompatibleRuntimeAdapter(config) {
   const sessionStore = new SessionStore({
@@ -39,6 +41,12 @@ function createOpenAICompatibleRuntimeAdapter(config) {
   const maxTokens = readPositiveInt(config.openaiMaxTokens)
     || readPositiveInt(process.env.MJI_API_MAX_TOKENS)
     || 0;
+  const streamingEnabled = readOptionalBoolean(process.env.MJI_API_STREAM) ?? true;
+  const streamChunkChars = clampInteger(
+    readPositiveInt(process.env.MJI_API_STREAM_CHUNK_CHARS) || 48,
+    12,
+    240
+  );
 
   function emit(event) {
     for (const listener of listeners) {
@@ -53,6 +61,8 @@ function createOpenAICompatibleRuntimeAdapter(config) {
   async function runTurn({ threadId, turnId, text, model, transientSystemMessages = [] }) {
     const runKey = `${threadId}:${turnId}`;
     const controller = new AbortController();
+    const startedAt = Date.now();
+    const deadline = setTimeout(() => controller.abort(), timeoutMs);
     activeRequests.set(runKey, controller);
 
     emit({
@@ -73,28 +83,54 @@ function createOpenAICompatibleRuntimeAdapter(config) {
       messages.push(...history.slice(-historyLimit));
       messages.push({ role: "user", content: String(text || "").trim() });
 
-      const response = await fetchWithTimeout(buildChatCompletionsUrl(apiBaseUrl), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(buildRequestBody({
-          model: readText(model) || configuredModel,
+      const selectedModel = readText(model) || configuredModel;
+      let result;
+      if (streamingEnabled) {
+        try {
+          result = await requestStreamingCompletion({
+            apiBaseUrl,
+            apiKey,
+            model: selectedModel,
+            messages,
+            temperature,
+            maxTokens,
+            signal: controller.signal,
+            threadId,
+            turnId,
+            emit,
+            streamChunkChars,
+            startedAt,
+          });
+        } catch (error) {
+          if (!isUnsupportedStreamingError(error)) throw error;
+          console.warn(
+            `[mji] streaming unsupported status=${error.status || "unknown"}; retrying non-streaming`
+          );
+          result = await requestNonStreamingCompletion({
+            apiBaseUrl,
+            apiKey,
+            model: selectedModel,
+            messages,
+            temperature,
+            maxTokens,
+            signal: controller.signal,
+            startedAt,
+          });
+        }
+      } else {
+        result = await requestNonStreamingCompletion({
+          apiBaseUrl,
+          apiKey,
+          model: selectedModel,
           messages,
           temperature,
           maxTokens,
-        })),
-        signal: controller.signal,
-      }, timeoutMs);
-
-      const payloadText = await response.text();
-      const payload = parseJson(payloadText);
-      if (!response.ok) {
-        throw new Error(extractApiError(payload, payloadText, response.status));
+          signal: controller.signal,
+          startedAt,
+        });
       }
 
-      const rawReply = extractAssistantReply(payload);
+      const rawReply = String(result.rawReply || "").trim();
       if (!rawReply) {
         throw new Error("模型接口返回成功，但没有回复内容");
       }
@@ -106,7 +142,7 @@ function createOpenAICompatibleRuntimeAdapter(config) {
         { role: "assistant", content: reply },
       ].slice(-(historyLimit * 2)));
 
-      const usage = payload?.usage || {};
+      const usage = result.usage || {};
       emit({
         type: "runtime.context.updated",
         payload: {
@@ -119,8 +155,8 @@ function createOpenAICompatibleRuntimeAdapter(config) {
           currentTokens: numberOrZero(usage.total_tokens),
           contextWindow: 0,
           provider: providerName,
-          model: readText(payload?.model) || readText(model) || configuredModel,
-          requestId: readText(payload?.id),
+          model: readText(result.model) || selectedModel,
+          requestId: readText(result.requestId),
         },
       });
       emit({
@@ -131,21 +167,31 @@ function createOpenAICompatibleRuntimeAdapter(config) {
           itemId: `reply-${turnId}`,
           text: reply,
           rawText: rawReply,
+          deliveryHandled: result.deliveryCount > 0,
         },
       });
       emit({
         type: "runtime.turn.completed",
         payload: { threadId, turnId, text: reply },
       });
+
+      const totalMs = Date.now() - startedAt;
+      console.log(
+        `[mji] latency model=${readText(result.model) || selectedModel} stream=${Boolean(result.streamed)} headersMs=${result.headersMs ?? -1} firstTokenMs=${result.firstTokenMs ?? -1} totalMs=${totalMs}`
+      );
     } catch (error) {
       const message = controller.signal.aborted
-        ? "本次回复已停止"
+        ? `模型回复超过 ${Math.ceil(timeoutMs / 1000)} 秒，已停止本次请求`
         : formatError(error);
+      console.error(
+        `[mji] latency failed totalMs=${Date.now() - startedAt} reason=${message}`
+      );
       emit({
         type: "runtime.turn.failed",
         payload: { threadId, turnId, text: message },
       });
     } finally {
+      clearTimeout(deadline);
       activeRequests.delete(runKey);
     }
   }
@@ -158,6 +204,7 @@ function createOpenAICompatibleRuntimeAdapter(config) {
         endpoint: apiBaseUrl || "(not configured)",
         model: configuredModel,
         modelProvider: providerName,
+        streaming: streamingEnabled,
       };
     },
 
@@ -272,11 +319,295 @@ function createOpenAICompatibleRuntimeAdapter(config) {
   };
 }
 
-function buildRequestBody({ model, messages, temperature, maxTokens }) {
+async function requestNonStreamingCompletion({
+  apiBaseUrl,
+  apiKey,
+  model,
+  messages,
+  temperature,
+  maxTokens,
+  signal,
+  startedAt,
+}) {
+  const response = await fetch(buildChatCompletionsUrl(apiBaseUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(buildRequestBody({
+      model,
+      messages,
+      temperature,
+      maxTokens,
+      stream: false,
+    })),
+    signal,
+  });
+  const headersMs = Date.now() - startedAt;
+  const payloadText = await response.text();
+  const payload = parseJson(payloadText);
+  if (!response.ok) {
+    throw createApiError(payload, payloadText, response.status);
+  }
+  return {
+    rawReply: extractAssistantReply(payload),
+    usage: payload?.usage || {},
+    model: readText(payload?.model) || model,
+    requestId: readText(payload?.id),
+    headersMs,
+    firstTokenMs: headersMs,
+    deliveryCount: 0,
+    streamed: false,
+  };
+}
+
+async function requestStreamingCompletion({
+  apiBaseUrl,
+  apiKey,
+  model,
+  messages,
+  temperature,
+  maxTokens,
+  signal,
+  threadId,
+  turnId,
+  emit,
+  streamChunkChars,
+  startedAt,
+}) {
+  const response = await fetch(buildChatCompletionsUrl(apiBaseUrl), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify(buildRequestBody({
+      model,
+      messages,
+      temperature,
+      maxTokens,
+      stream: true,
+    })),
+    signal,
+  });
+  const headersMs = Date.now() - startedAt;
+  if (!response.ok) {
+    const payloadText = await response.text();
+    const payload = parseJson(payloadText);
+    throw createApiError(payload, payloadText, response.status);
+  }
+
+  const contentType = readText(response.headers.get("content-type")).toLowerCase();
+  if (!contentType.includes("text/event-stream")) {
+    const payloadText = await response.text();
+    const payload = parseJson(payloadText);
+    if (!payload) throw new Error("模型接口未返回有效的流式数据");
+    return {
+      rawReply: extractAssistantReply(payload),
+      usage: payload?.usage || {},
+      model: readText(payload?.model) || model,
+      requestId: readText(payload?.id),
+      headersMs,
+      firstTokenMs: headersMs,
+      deliveryCount: 0,
+      streamed: false,
+    };
+  }
+  if (!response.body) {
+    throw new Error("模型接口没有返回可读取的流");
+  }
+
+  const decoder = new TextDecoder();
+  const reader = response.body.getReader();
+  const delivery = createStreamingDelivery({
+    threadId,
+    turnId,
+    emit,
+    minimumChars: streamChunkChars,
+  });
+  let lineBuffer = "";
+  let rawReply = "";
+  let usage = {};
+  let responseModel = model;
+  let requestId = "";
+  let firstTokenMs = -1;
+  let done = false;
+
+  while (!done) {
+    const part = await reader.read();
+    if (part.done) break;
+    lineBuffer += decoder.decode(part.value, { stream: true });
+    const lines = lineBuffer.split(/\r?\n/);
+    lineBuffer = lines.pop() || "";
+    for (const line of lines) {
+      const parsed = parseSseLine(line);
+      if (parsed.done) {
+        done = true;
+        break;
+      }
+      if (!parsed.payload) continue;
+      responseModel = readText(parsed.payload.model) || responseModel;
+      requestId = readText(parsed.payload.id) || requestId;
+      if (parsed.payload.usage) usage = parsed.payload.usage;
+      const delta = extractStreamDelta(parsed.payload);
+      if (!delta) continue;
+      if (firstTokenMs < 0) firstTokenMs = Date.now() - startedAt;
+      rawReply += delta;
+      delivery.push(rawReply);
+    }
+  }
+
+  lineBuffer += decoder.decode();
+  if (lineBuffer.trim()) {
+    const parsed = parseSseLine(lineBuffer);
+    if (parsed.payload) {
+      responseModel = readText(parsed.payload.model) || responseModel;
+      requestId = readText(parsed.payload.id) || requestId;
+      if (parsed.payload.usage) usage = parsed.payload.usage;
+      const delta = extractStreamDelta(parsed.payload);
+      if (delta) {
+        if (firstTokenMs < 0) firstTokenMs = Date.now() - startedAt;
+        rawReply += delta;
+        delivery.push(rawReply);
+      }
+    }
+  }
+
+  delivery.flush(rawReply);
+  return {
+    rawReply,
+    usage,
+    model: responseModel,
+    requestId,
+    headersMs,
+    firstTokenMs: firstTokenMs < 0 ? headersMs : firstTokenMs,
+    deliveryCount: delivery.count(),
+    streamed: true,
+  };
+}
+
+function createStreamingDelivery({ threadId, turnId, emit, minimumChars }) {
+  let sentChars = 0;
+  let sequence = 0;
+
+  function emitChunk(rawChunk) {
+    const text = String(rawChunk || "").trim();
+    if (!text) return;
+    sequence += 1;
+    emit({
+      type: "runtime.reply.delivery",
+      payload: {
+        threadId,
+        turnId,
+        itemId: `reply-${turnId}-part-${sequence}`,
+        text,
+      },
+    });
+  }
+
+  function drain(rawText, force) {
+    const publicPrefix = resolvePublicStreamingPrefix(rawText);
+    if (sentChars >= publicPrefix.length) return;
+    let unsent = publicPrefix.slice(sentChars);
+
+    while (unsent) {
+      const cut = resolveStreamingCut(unsent, minimumChars, force);
+      if (cut <= 0) break;
+      const source = unsent.slice(0, cut);
+      sentChars += cut;
+      unsent = publicPrefix.slice(sentChars);
+      emitChunk(source);
+      if (!force && unsent.length < minimumChars) break;
+    }
+  }
+
+  return {
+    push(rawText) {
+      drain(rawText, false);
+    },
+    flush(rawText) {
+      drain(rawText, true);
+    },
+    count() {
+      return sequence;
+    },
+  };
+}
+
+function resolveStreamingCut(text, minimumChars, force) {
+  if (!text) return 0;
+  if (force) return text.length;
+
+  const boundary = findLastSentenceBoundary(text);
+  if (boundary >= Math.min(6, minimumChars)) {
+    return boundary;
+  }
+  if (text.length < minimumChars) return 0;
+
+  const softLimit = Math.min(text.length, Math.max(minimumChars, 96));
+  const candidate = text.slice(0, softLimit);
+  const softBoundary = Math.max(
+    candidate.lastIndexOf("，") + 1,
+    candidate.lastIndexOf(",") + 1,
+    candidate.lastIndexOf(" ") + 1
+  );
+  return softBoundary >= minimumChars ? softBoundary : softLimit;
+}
+
+function findLastSentenceBoundary(text) {
+  let last = 0;
+  const pattern = /[。！？!?；;\n]+/g;
+  let match;
+  while ((match = pattern.exec(text))) {
+    last = match.index + match[0].length;
+  }
+  return last;
+}
+
+function resolvePublicStreamingPrefix(value) {
+  const text = String(value || "");
+  const lower = text.toLowerCase();
+  const tagIndex = lower.indexOf(PRIVATE_MEMORY_TAG);
+  if (tagIndex >= 0) return text.slice(0, tagIndex);
+
+  const lastOpen = lower.lastIndexOf("<");
+  if (lastOpen >= 0) {
+    const suffix = lower.slice(lastOpen);
+    if (PRIVATE_MEMORY_TAG.startsWith(suffix)) {
+      return text.slice(0, lastOpen);
+    }
+  }
+  return text;
+}
+
+function parseSseLine(line) {
+  const trimmed = String(line || "").trim();
+  if (!trimmed || trimmed.startsWith(":")) return { payload: null, done: false };
+  if (!trimmed.startsWith("data:")) return { payload: null, done: false };
+  const data = trimmed.slice(5).trim();
+  if (data === "[DONE]") return { payload: null, done: true };
+  return { payload: parseJson(data), done: false };
+}
+
+function extractStreamDelta(payload) {
+  const choice = payload?.choices?.[0] || {};
+  const content = choice?.delta?.content ?? choice?.text ?? choice?.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => typeof item === "string" ? item : readText(item?.text))
+      .join("");
+  }
+  return "";
+}
+
+function buildRequestBody({ model, messages, temperature, maxTokens, stream }) {
   const body = {
     model,
     messages,
-    stream: false,
+    stream: Boolean(stream),
   };
   if (typeof temperature === "number") body.temperature = temperature;
   if (maxTokens > 0) body.max_tokens = maxTokens;
@@ -288,20 +619,6 @@ function buildChatCompletionsUrl(baseUrl) {
   if (!normalized) return "";
   if (/\/chat\/completions$/i.test(normalized)) return normalized;
   return `${normalized}/chat/completions`;
-}
-
-async function fetchWithTimeout(url, options, timeoutMs) {
-  const timeoutController = new AbortController();
-  const timer = setTimeout(() => timeoutController.abort(), timeoutMs);
-  const externalSignal = options.signal;
-  const abort = () => timeoutController.abort();
-  externalSignal?.addEventListener?.("abort", abort, { once: true });
-  try {
-    return await fetch(url, { ...options, signal: timeoutController.signal });
-  } finally {
-    clearTimeout(timer);
-    externalSignal?.removeEventListener?.("abort", abort);
-  }
 }
 
 function extractAssistantReply(payload) {
@@ -334,6 +651,16 @@ function normalizeSystemMessages(values) {
   return result.slice(0, 20);
 }
 
+function createApiError(payload, rawText, status) {
+  const error = new Error(extractApiError(payload, rawText, status));
+  error.status = status;
+  return error;
+}
+
+function isUnsupportedStreamingError(error) {
+  return STREAM_UNSUPPORTED_STATUSES.has(Number(error?.status));
+}
+
 function extractApiError(payload, rawText, status) {
   return readText(payload?.error?.message)
     || readText(payload?.message)
@@ -362,6 +689,20 @@ function readOptionalNumber(value) {
   if (value == null || String(value).trim() === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function readOptionalBoolean(value) {
+  const normalized = readText(value).toLowerCase();
+  if (!normalized) return undefined;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return undefined;
+}
+
+function clampInteger(value, minimum, maximum) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (!Number.isFinite(parsed)) return minimum;
+  return Math.max(minimum, Math.min(maximum, parsed));
 }
 
 function numberOrZero(value) {
