@@ -23,7 +23,11 @@ async function fetchQrCode(apiBaseUrl, botType) {
     const body = await response.text().catch(() => "(unreadable)");
     throw new Error(`Failed to fetch QR code: ${response.status} ${response.statusText} ${redactSensitiveText(body)}`);
   }
-  return response.json();
+  const payload = await response.json();
+  if (!payload?.qrcode || !payload?.qrcode_img_content) {
+    throw new Error("QR code response is missing qrcode or qrcode_img_content.");
+  }
+  return payload;
 }
 
 async function pollQrStatus(apiBaseUrl, qrcode) {
@@ -81,6 +85,21 @@ function cleanupStaleAccountsForUserId(config, activeAccount) {
   return staleAccounts;
 }
 
+function saveConfirmedWeixinLogin(config, statusResponse, fallbackBaseUrl = "") {
+  if (!statusResponse?.bot_token || !statusResponse?.ilink_bot_id) {
+    throw new Error("Login succeeded but the response is missing the bot token or account ID.");
+  }
+  const result = {
+    accountId: statusResponse.ilink_bot_id,
+    token: statusResponse.bot_token,
+    baseUrl: statusResponse.baseurl || fallbackBaseUrl || config.weixinBaseUrl,
+    userId: statusResponse.ilink_user_id || "",
+  };
+  const account = saveWeixinAccount(config, result.accountId, result);
+  cleanupStaleAccountsForUserId(config, account);
+  return account;
+}
+
 async function waitForWeixinLogin({ apiBaseUrl, botType, timeoutMs }) {
   let qrResponse = await fetchQrCode(apiBaseUrl, botType);
   let startedAt = Date.now();
@@ -128,9 +147,6 @@ async function waitForWeixinLogin({ apiBaseUrl, botType, timeoutMs }) {
         printQrCode(qrResponse.qrcode_img_content);
         break;
       case "confirmed":
-        if (!statusResponse.bot_token || !statusResponse.ilink_bot_id) {
-          throw new Error("Login succeeded but the response is missing the bot token or account ID.");
-        }
         return {
           accountId: statusResponse.ilink_bot_id,
           token: statusResponse.bot_token,
@@ -151,12 +167,25 @@ async function runLoginFlow(config) {
     botType: config.weixinQrBotType,
     timeoutMs: 480_000,
   });
-  const account = saveWeixinAccount(config, result.accountId, result);
-  cleanupStaleAccountsForUserId(config, account);
+  const account = saveConfirmedWeixinLogin(config, {
+    status: "confirmed",
+    ilink_bot_id: result.accountId,
+    bot_token: result.token,
+    baseurl: result.baseUrl,
+    ilink_user_id: result.userId,
+  }, config.weixinBaseUrl);
   console.log("\n✅ Connected to WeChat successfully.");
   console.log(`accountId: ${account.accountId}`);
   console.log(`userId: ${account.userId || "(unknown)"}`);
   console.log(`baseUrl: ${account.baseUrl}`);
 }
 
-module.exports = { runLoginFlow };
+module.exports = {
+  ACTIVE_LOGIN_TTL_MS,
+  MAX_QR_REFRESH_COUNT,
+  QR_LONG_POLL_TIMEOUT_MS,
+  fetchQrCode,
+  pollQrStatus,
+  runLoginFlow,
+  saveConfirmedWeixinLogin,
+};
