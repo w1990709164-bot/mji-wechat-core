@@ -9,6 +9,7 @@ const { handleUserCommandMessage } = require("./user-command-center");
 class MjiWalletApp extends MjiOpenAIApp {
   constructor(config) {
     super(config);
+    this.newUserTrialCreditsCache = { value: null, expiresAtMs: 0 };
 
     const explicitRuntime = normalizeText(process.env.CYBERBOSS_RUNTIME).toLowerCase();
     if (explicitRuntime === "codex" || explicitRuntime === "claudecode") {
@@ -124,7 +125,7 @@ class MjiWalletApp extends MjiOpenAIApp {
     }
 
     try {
-      const trialCredits = resolveNewUserTrialCredits();
+      const trialCredits = await this.resolveConfiguredTrialCredits();
       const identity = await this.mjiStorage.users.resolveOrCreateByChannelIdentity({
         tenantId: this.mjiTenant.id,
         channelAccountId: this.mjiChannelAccount.id,
@@ -143,6 +144,17 @@ class MjiWalletApp extends MjiOpenAIApp {
           lastThreadKey: normalized.threadKey || null,
         },
       });
+
+      if (identity.status === "blocked" || identity.status === "deleted") {
+        await this.channelAdapter.sendText({
+          userId: normalized.senderId,
+          contextToken: normalized.contextToken,
+          text: "该账号当前无法使用 M叽服务，请联系管理员处理。",
+          preserveBlock: true,
+        });
+        console.log(`[mji] blocked user=${identity.userId} status=${identity.status} apiCalled=false creditsCharged=0`);
+        return true;
+      }
 
       await this.ensureNewUserTrialCredits(identity, trialCredits);
 
@@ -215,6 +227,17 @@ class MjiWalletApp extends MjiOpenAIApp {
         }
         return true;
       }
+
+      if (identity.status === "paused") {
+        await this.channelAdapter.sendText({
+          userId: normalized.senderId,
+          contextToken: normalized.contextToken,
+          text: "M叽服务目前已由管理员暂停。余额、充值和订单查询仍可正常使用，请联系管理员恢复聊天服务。",
+          preserveBlock: true,
+        });
+        console.log(`[mji] paused user=${identity.userId} apiCalled=false creditsCharged=0`);
+        return true;
+      }
     } catch (error) {
       console.error(`[mji] user command failed: ${formatError(error)}`);
       await this.channelAdapter.sendText({
@@ -226,6 +249,35 @@ class MjiWalletApp extends MjiOpenAIApp {
     }
 
     return super.handlePreparedMessage(normalized, options);
+  }
+
+  async resolveConfiguredTrialCredits() {
+    const now = Date.now();
+    if (
+      Number.isFinite(this.newUserTrialCreditsCache.value)
+      && now < this.newUserTrialCreditsCache.expiresAtMs
+    ) {
+      return this.newUserTrialCreditsCache.value;
+    }
+
+    let settings = this.mjiTenant?.settings || {};
+    try {
+      const result = await this.mjiStorage.postgres.query(
+        "SELECT settings FROM tenants WHERE id = $1 LIMIT 1",
+        [this.mjiTenant.id]
+      );
+      settings = result.rows[0]?.settings || settings;
+      this.mjiTenant.settings = settings;
+    } catch (error) {
+      console.warn(`[mji] trial credits settings refresh failed: ${formatError(error)}`);
+    }
+
+    const value = resolveNewUserTrialCredits(settings);
+    this.newUserTrialCreditsCache = {
+      value,
+      expiresAtMs: now + 30_000,
+    };
+    return value;
   }
 
   async handleRuntimeEvent(event) {
@@ -248,7 +300,16 @@ class MjiWalletApp extends MjiOpenAIApp {
   }
 }
 
-function resolveNewUserTrialCredits() {
+function resolveNewUserTrialCredits(settings = {}) {
+  const configured = Number(
+    settings && typeof settings === "object"
+      ? settings.newUserTrialCredits
+      : NaN
+  );
+  if (Number.isFinite(configured) && configured >= 0) {
+    return Math.round(configured * 1000) / 1000;
+  }
+
   const raw = process.env.MJI_NEW_USER_TRIAL_CREDITS;
   if (raw == null || String(raw).trim() === "") return 100;
   const parsed = Number(raw);
