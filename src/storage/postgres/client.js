@@ -1,5 +1,7 @@
 "use strict";
 
+const HANDLED_POOLS = new WeakSet();
+
 function createPostgresPool(config = {}, options = {}) {
   if (options.pool) {
     attachPoolErrorHandler(options.pool);
@@ -61,15 +63,10 @@ function createPostgresClient(config = {}, options = {}) {
 }
 
 function attachPoolErrorHandler(pool) {
-  if (!pool || typeof pool.on !== "function" || pool.__mjiPoolErrorHandlerAttached) {
+  if (!pool || typeof pool !== "object" || typeof pool.on !== "function" || HANDLED_POOLS.has(pool)) {
     return pool;
   }
-  Object.defineProperty(pool, "__mjiPoolErrorHandlerAttached", {
-    value: true,
-    enumerable: false,
-    configurable: false,
-    writable: false,
-  });
+  HANDLED_POOLS.add(pool);
   pool.on("error", (error) => {
     const message = formatError(error);
     console.error(
