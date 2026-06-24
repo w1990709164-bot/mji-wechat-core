@@ -31,6 +31,15 @@ class MjiWalletApp extends MjiOpenAIApp {
           limit,
         });
       },
+      loadPersona: async (context) => {
+        if (typeof this.mjiStorage?.personas?.getSelected !== "function") {
+          return null;
+        }
+        return this.mjiStorage.personas.getSelected({
+          tenantId: context.tenantId,
+          userId: context.userId,
+        });
+      },
       loadMemories: async (context, settings = {}) => {
         if (typeof this.mjiStorage?.memories?.listRelevant !== "function") {
           return [];
