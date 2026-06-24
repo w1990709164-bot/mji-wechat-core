@@ -33,8 +33,10 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
     const turnId = normalizeText(event?.payload?.turnId);
     const runKey = buildRunKey(threadId, turnId);
     const reservation = reservationByRunKey.get(runKey) || null;
+    const isSuccessfulDelivery = event?.type === "runtime.reply.delivery"
+      || event?.type === "runtime.reply.completed";
 
-    if (event?.type === "runtime.reply.completed" && reservation) {
+    if (isSuccessfulDelivery && reservation && !reservation.captured) {
       try {
         const captured = await billing.captureCredits({
           tenantId: reservation.context.tenantId,
@@ -47,6 +49,7 @@ function createBilledOpenAICompatibleRuntimeAdapter(config, options = {}) {
             turnId,
             provider: base.describe().modelProvider,
             model: base.describe().model,
+            streamed: event?.type === "runtime.reply.delivery",
           },
         });
         if (!captured?.ok) {
