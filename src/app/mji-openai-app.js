@@ -5,6 +5,7 @@ const { MjiApp } = require("./mji-app");
 const { StreamDelivery } = require("../core/stream-delivery");
 const { ThreadStateStore } = require("../core/thread-state-store");
 const { createOpenAICompatibleRuntimeAdapter } = require("../adapters/runtime/openai-compatible");
+const { handlePersonaWizardMessage } = require("./persona-wizard");
 
 class MjiOpenAIApp extends MjiApp {
   constructor(config) {
@@ -47,7 +48,13 @@ class MjiOpenAIApp extends MjiApp {
   }
 
   async handlePreparedMessage(normalized, options) {
-    if (!this.mjiStorage || !this.mjiTenant || !this.mjiChannelAccount || !this.mjiStorage.chats) {
+    if (
+      !this.mjiStorage
+      || !this.mjiTenant
+      || !this.mjiChannelAccount
+      || !this.mjiStorage.chats
+      || !this.mjiStorage.personas
+    ) {
       return super.handlePreparedMessage(normalized, options);
     }
 
@@ -103,6 +110,49 @@ class MjiOpenAIApp extends MjiApp {
         senderId: normalized.senderId,
       };
       this.mjiContextByBindingKey.set(bindingKey, context);
+
+      const persona = await this.mjiStorage.personas.getSelected({
+        tenantId: this.mjiTenant.id,
+        userId: identity.userId,
+      });
+      const wizard = await handlePersonaWizardMessage({
+        text: normalized.text,
+        profile: identity.profile,
+        persona,
+        updateProfile: async (profilePatch) => {
+          const updated = await this.mjiStorage.users.updateProfile({
+            tenantId: this.mjiTenant.id,
+            userId: identity.userId,
+            profilePatch,
+          });
+          identity.profile = updated?.profile || {
+            ...(identity.profile || {}),
+            ...profilePatch,
+          };
+          return identity.profile;
+        },
+        savePersona: (input) => this.mjiStorage.personas.updateSelected({
+          tenantId: this.mjiTenant.id,
+          userId: identity.userId,
+          ...input,
+        }),
+        sendText: (text) => this.channelAdapter.sendText({
+          userId: normalized.senderId,
+          contextToken: normalized.contextToken,
+          text,
+          preserveBlock: true,
+        }),
+      });
+
+      if (wizard.handled) {
+        console.log(
+          `[mji] local persona wizard user=${identity.userId} finished=${Boolean(wizard.finished)} apiCalled=false creditsCharged=0`
+        );
+        if (identity.created) {
+          console.log(`[mji] created user=${identity.userId} provider=weixin`);
+        }
+        return true;
+      }
 
       await this.mjiStorage.chats.appendMessage({
         ...context,
@@ -332,12 +382,12 @@ function calculateBilling(usage) {
 function resolveNewUserTrialCredits() {
   const raw = process.env.MJI_NEW_USER_TRIAL_CREDITS;
   if (raw == null || String(raw).trim() === "") {
-    return 30;
+    return 100;
   }
   const parsed = Number(raw);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    console.warn("[mji] invalid MJI_NEW_USER_TRIAL_CREDITS, using default 30");
-    return 30;
+    console.warn("[mji] invalid MJI_NEW_USER_TRIAL_CREDITS, using default 100");
+    return 100;
   }
   return Math.round(parsed * 1000) / 1000;
 }
