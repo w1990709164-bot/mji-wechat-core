@@ -282,13 +282,19 @@ function formatRechargePackages(packages) {
   if (!Array.isArray(packages) || packages.length === 0) {
     return "目前没有启用中的充值套餐，请联系管理员。";
   }
+
   const lines = ["M叽 · 充值套餐", ""];
   packages.forEach((item, index) => {
+    const usageCount = estimateReplyCount(item.credits);
     lines.push(
-      `${index + 1}. ${item.name}｜¥${formatYuan(item.priceYuan)}｜${formatCredits(item.credits)} 额度${item.description ? `\n   ${item.description}` : ""}`
+      `${index + 1}. ${item.name}｜¥${formatYuan(item.priceYuan)}｜${formatCredits(item.credits)}额度｜约${usageCount}次正常回复`
     );
   });
-  lines.push("", "选择方式：发送「充值 1」「充值 2」等生成订单。", "订单生成后请按管理员提供的收款方式付款，并备注订单号。");
+  lines.push(
+    "",
+    "选择方式：发送「充值 1」「充值 2」等生成订单。",
+    "订单生成后请按管理员提供的收款方式付款，并备注订单号。"
+  );
   return lines.join("\n");
 }
 
@@ -310,7 +316,7 @@ function formatCreatedRechargeOrder(order, packageItem) {
     `套餐：${packageItem.name}`,
     `应付金额：¥${formatYuan(order.amountYuan)}`,
     `到账额度：${formatCredits(order.credits)}`,
-    `当前状态：待管理员确认`,
+    "当前状态：待管理员确认",
     "",
     "付款时请务必备注完整订单号。管理员确认收款后，额度会自动到账。",
     "可发送「充值记录」查看订单状态。",
@@ -321,14 +327,18 @@ function formatRechargeOrders(orders) {
   if (!Array.isArray(orders) || orders.length === 0) {
     return "目前还没有充值订单。发送「充值」查看套餐。";
   }
+
   const lines = ["M叽 · 最近充值订单", ""];
   orders.forEach((order, index) => {
     lines.push(
-      `${index + 1}. ${order.orderNo}`,
-      `   ${order.packageName || "充值套餐"}｜¥${formatYuan(order.amountYuan)}｜${formatCredits(order.credits)} 额度`,
-      `   状态：${orderStatusName(order.status)}｜${formatDate(order.createdAt)}`
+      `${index + 1}. ${order.orderNo}｜${order.packageName || "充值套餐"}｜¥${formatYuan(order.amountYuan)}｜${formatCredits(order.credits)}额度｜${orderStatusName(order.status)}｜${formatDate(order.createdAt)}`
     );
   });
+
+  if (orders.some((order) => normalizeText(order.status).toLowerCase() === "pending")) {
+    lines.push("", "待管理员确认的订单尚未增加余额；管理员确认收款后会自动到账。");
+  }
+
   return lines.join("\n");
 }
 
@@ -389,10 +399,10 @@ function transactionTypeName(type) {
 
 function orderStatusName(status) {
   return {
-    pending: "待确认",
+    pending: "待管理员确认",
     paid: "已到账",
     cancelled: "已取消",
-  }[normalizeText(status).toLowerCase()] || "未知";
+  }[normalizeText(status).toLowerCase()] || "状态未知";
 }
 
 function relationshipStageName(stage) {
@@ -423,6 +433,10 @@ function memoryTypeName(type) {
     summary: "总结",
     other: "其他",
   }[normalizeText(type).toLowerCase()] || "记忆";
+}
+
+function estimateReplyCount(value) {
+  return Math.max(0, Math.floor(toCredits(value) / 10));
 }
 
 function formatCredits(value) {
