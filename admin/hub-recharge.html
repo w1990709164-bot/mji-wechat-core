@@ -6,7 +6,7 @@
   <title>M叽管理员总后台</title>
   <style>
     :root{color-scheme:dark;--bg:#090b10;--line:rgba(255,255,255,.1);--text:#f7f8fb;--muted:#9aa3b5;--accent:#8b7cff;--ok:#48d59a;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
-    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{overflow:hidden}.shell{height:100vh;display:grid;grid-template-rows:auto 1fr}.header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 20px;border-bottom:1px solid var(--line);background:rgba(9,11,16,.92);backdrop-filter:blur(18px)}.brand{display:flex;align-items:center;gap:12px;min-width:220px}.logo{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#5c50d8);font-weight:900}.brand h1{margin:0;font-size:17px}.brand p{margin:3px 0 0;color:var(--muted);font-size:11px}.nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}.nav button{border:1px solid var(--line);background:#121620;color:var(--muted);border-radius:12px;padding:10px 14px;font:inherit;font-weight:800;cursor:pointer}.nav button.active{background:rgba(139,124,255,.16);border-color:rgba(139,124,255,.48);color:#fff}.status{min-width:180px;text-align:right;color:var(--ok);font-size:12px}.frame-wrap{min-height:0}iframe{display:block;width:100%;height:100%;border:0;background:var(--bg)}@media(max-width:980px){body{overflow:auto}.shell{height:auto;min-height:100vh;grid-template-rows:auto minmax(760px,1fr)}.header{align-items:flex-start;flex-direction:column}.brand,.status{min-width:0}.status{text-align:left}.nav{justify-content:flex-start;width:100%}.nav button{flex:1;min-width:110px}}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{overflow:hidden}.shell{height:100vh;display:grid;grid-template-rows:auto 1fr}.header{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:16px 20px;border-bottom:1px solid var(--line);background:rgba(9,11,16,.92);backdrop-filter:blur(18px)}.brand{display:flex;align-items:center;gap:12px;min-width:220px}.logo{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#5c50d8);font-weight:900}.brand h1{margin:0;font-size:17px}.brand p{margin:3px 0 0;color:var(--muted);font-size:11px}.nav{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:center}.nav button{border:1px solid var(--line);background:#121620;color:var(--muted);border-radius:12px;padding:10px 14px;font:inherit;font-weight:800;cursor:pointer}.nav button.active{background:rgba(139,124,255,.16);border-color:rgba(139,124,255,.48);color:#fff}.nav button.external{color:#fff;border-color:rgba(72,213,154,.36);background:rgba(72,213,154,.08)}.status{min-width:180px;text-align:right;color:var(--ok);font-size:12px}.frame-wrap{min-height:0}iframe{display:block;width:100%;height:100%;border:0;background:var(--bg)}@media(max-width:980px){body{overflow:auto}.shell{height:auto;min-height:100vh;grid-template-rows:auto minmax(760px,1fr)}.header{align-items:flex-start;flex-direction:column}.brand,.status{min-width:0}.status{text-align:left}.nav{justify-content:flex-start;width:100%}.nav button{flex:1;min-width:110px}}
   </style>
 </head>
 <body>
@@ -14,6 +14,7 @@
     <header class="header">
       <div class="brand"><div class="logo">M叽</div><div><h1>管理员总后台</h1><p>__TENANT_NAME__ · 一个窗口管理全部功能</p></div></div>
       <nav class="nav">
+        <button type="button" id="openUsers" class="external">用户管理 ↗</button>
         <button type="button" data-page="wallet" class="active">余额管理</button>
         <button type="button" data-page="recharge">充值管理</button>
         <button type="button" data-page="persona">人设管理</button>
@@ -33,6 +34,7 @@
       frame.src='/'+page;frame.title=labels[page];if(push)history.replaceState(null,'','#'+page);
     }
     buttons.forEach(button=>button.addEventListener('click',()=>openPage(button.dataset.page)));
+    document.getElementById('openUsers').addEventListener('click',()=>window.open('http://127.0.0.1:8788/','mjiUserAdmin'));
     const initial=location.hash.replace('#','').trim();if(initial&&labels[initial])openPage(initial,false);
   </script>
 </body>
