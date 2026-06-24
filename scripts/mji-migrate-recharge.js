@@ -16,24 +16,36 @@ async function main() {
     const existing = await postgres.query(
       "SELECT to_regclass('public.recharge_packages') AS packages, to_regclass('public.recharge_orders') AS orders"
     );
-    if (existing.rows[0]?.packages && existing.rows[0]?.orders) {
-      console.log("充值套餐与订单数据表已经存在，无需重复迁移。");
-      return;
+    const tablesExist = Boolean(existing.rows[0]?.packages && existing.rows[0]?.orders);
+
+    if (!tablesExist) {
+      await runMigration(postgres, "005_recharge_packages_and_orders.sql");
+      console.log("充值套餐与订单数据库迁移完成。");
     }
 
-    const migrationPath = path.join(
-      __dirname,
-      "..",
-      "db",
-      "migrations",
-      "005_recharge_packages_and_orders.sql"
-    );
-    const sql = fs.readFileSync(migrationPath, "utf8");
-    await postgres.query(sql);
-    console.log("充值套餐与订单数据库迁移完成。");
+    await runMigration(postgres, "006_fix_default_recharge_credit_conversion.sql");
+
+    if (tablesExist) {
+      console.log("充值数据表已经存在，默认套餐额度换算已校正。");
+    } else {
+      console.log("默认套餐已按 1 额度 = 0.005 元完成配置。");
+    }
+    console.log("当前默认套餐：10 元 / 2000 额度，30 元 / 6000 额度，50 元 / 10000 额度。");
   } finally {
     await postgres.close();
   }
+}
+
+async function runMigration(postgres, fileName) {
+  const migrationPath = path.join(
+    __dirname,
+    "..",
+    "db",
+    "migrations",
+    fileName
+  );
+  const sql = fs.readFileSync(migrationPath, "utf8");
+  await postgres.query(sql);
 }
 
 function loadEnv() {
