@@ -287,7 +287,20 @@ function sanitizeText(value, maximum) {
 }
 
 function normalizeCommand(value) {
-  return normalizeText(value).toLowerCase().replace(/\s+/g, " ");
+  const clean = String(value || "")
+    .replace(/[\u200b-\u200d\ufeff]/gi, "")
+    .replace(/\r/g, "\n")
+    .trim()
+    .toLowerCase();
+  const lines = clean
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const lastLine = lines[lines.length - 1] || clean;
+  return lastLine
+    .replace(/^[\s“”‘’"'「」『』【】（）()，。！？!?、,:：；;]+/u, "")
+    .replace(/[\s“”‘’"'「」『』【】（）()，。！？!?、,:：；;]+$/u, "")
+    .replace(/\s+/g, " ");
 }
 
 function normalizeText(value) {
