@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="mji-admin-token" content="__ADMIN_TOKEN__" />
+  <title>M叽微信扫码接入</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b0d12;--panel:#171a23;--line:rgba(255,255,255,.1);--text:#f6f7fb;--muted:#9ba3b4;--accent:#8b7cff;--ok:#48d59a;--warn:#ffc568;--bad:#ff6b7a;font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;background:radial-gradient(circle at 10% 0%,rgba(139,124,255,.2),transparent 30%),radial-gradient(circle at 90% 10%,rgba(72,213,154,.1),transparent 25%),var(--bg);color:var(--text)}button{font:inherit;cursor:pointer}.shell{max-width:1120px;margin:0 auto;padding:34px 20px 50px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:22px}.top h1{margin:0;font-size:30px}.top p{margin:8px 0 0;color:var(--muted)}.pill{padding:8px 12px;border-radius:999px;border:1px solid rgba(72,213,154,.28);color:var(--ok);background:rgba(72,213,154,.08);font-size:12px}.grid{display:grid;grid-template-columns:minmax(320px,.9fr) minmax(420px,1.2fr);gap:18px;align-items:start}.panel{background:rgba(23,26,35,.92);border:1px solid var(--line);border-radius:22px;padding:22px;box-shadow:0 22px 70px rgba(0,0,0,.35)}.panel h2{margin:0 0 10px;font-size:19px}.muted{color:var(--muted);font-size:12px;line-height:1.7}.qr-wrap{min-height:390px;display:grid;place-items:center;margin-top:18px;border:1px dashed var(--line);border-radius:18px;background:#101219;padding:20px;text-align:center}.qr{width:min(320px,100%);aspect-ratio:1;background:#fff;border-radius:16px;padding:14px;box-shadow:0 12px 40px rgba(0,0,0,.35)}.qr svg{display:block;width:100%;height:100%}.placeholder strong{display:block;font-size:18px;color:var(--text);margin-bottom:8px}.status{display:flex;align-items:center;gap:10px;margin:18px 0 0;padding:14px 15px;border-radius:15px;background:#101219;border:1px solid var(--line)}.dot{width:10px;height:10px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 5px rgba(155,163,180,.08)}.status.wait .dot{background:var(--warn);box-shadow:0 0 0 5px rgba(255,197,104,.09)}.status.scanned .dot{background:var(--accent);box-shadow:0 0 0 5px rgba(139,124,255,.12)}.status.confirmed .dot{background:var(--ok);box-shadow:0 0 0 5px rgba(72,213,154,.1)}.status.failed .dot{background:var(--bad);box-shadow:0 0 0 5px rgba(255,107,122,.1)}.status-main{font-weight:800}.status-sub{margin-top:3px;color:var(--muted);font-size:11px}.actions{display:flex;gap:10px;margin-top:16px}.primary,.secondary,.danger{border-radius:13px;padding:12px 16px;font-weight:800}.primary{border:0;color:#fff;background:linear-gradient(135deg,var(--accent),#6659dc);box-shadow:0 12px 28px rgba(139,124,255,.25)}.secondary{border:1px solid var(--line);background:#11141b;color:var(--text)}.danger{border:1px solid rgba(255,107,122,.3);background:rgba(255,107,122,.08);color:#ff98a3}.actions button:disabled{opacity:.5;cursor:not-allowed}.steps{display:grid;gap:10px;margin-top:14px}.step{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:start;padding:13px;border:1px solid var(--line);border-radius:15px;background:#101219}.num{width:28px;height:28px;border-radius:10px;display:grid;place-items:center;background:rgba(139,124,255,.14);color:#c9c2ff;font-weight:800}.step strong{display:block;margin-bottom:4px}.accounts{margin-top:18px;display:grid;gap:10px}.account{padding:13px;border:1px solid var(--line);border-radius:14px;background:#101219}.account-name{font-weight:800;word-break:break-all}.account-meta{margin-top:5px;color:var(--muted);font-size:11px;line-height:1.55}.empty{padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}.toast{position:fixed;right:22px;bottom:22px;min-width:260px;max-width:420px;background:#20242e;border:1px solid var(--line);border-radius:14px;padding:14px 16px;opacity:0;transform:translateY(22px);transition:.2s}.toast.show{opacity:1;transform:none}@media(max-width:860px){.grid{grid-template-columns:1fr}.top{flex-direction:column}.shell{padding:22px 14px 40px}.qr-wrap{min-height:340px}.actions{flex-direction:column}.actions button{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <div class="top">
+      <div><h1>M叽微信扫码接入</h1><p>为一位新用户生成一个临时 iLink 二维码。扫码确认后，新的机器人账号会自动保存并被多账号监督器接管。</p></div>
+      <div class="pill">● 仅本机管理员可访问</div>
+    </div>
+
+    <div class="grid">
+      <section class="panel">
+        <h2>生成临时二维码</h2>
+        <div class="muted">每位新用户都要扫描自己这一张临时二维码。二维码约 5 分钟过期，页面会自动刷新，最多 3 次。</div>
+
+        <div id="qrWrap" class="qr-wrap">
+          <div class="placeholder"><strong>还没有二维码</strong>点击下方按钮开始接入新用户。</div>
+        </div>
+
+        <div id="statusBox" class="status">
+          <div class="dot"></div>
+          <div><div id="statusMain" class="status-main">尚未开始</div><div id="statusSub" class="status-sub">点击“生成二维码”</div></div>
+        </div>
+
+        <div class="actions">
+          <button id="startBtn" class="primary">生成二维码</button>
+          <button id="cancelBtn" class="danger" disabled>取消本次接入</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>使用步骤</h2>
+        <div class="steps">
+          <div class="step"><div class="num">1</div><div><strong>点击生成二维码</strong><div class="muted">系统从 iLink 获取一张临时接入码。</div></div></div>
+          <div class="step"><div class="num">2</div><div><strong>让新用户用微信扫码</strong><div class="muted">必须使用准备接入 M叽的那一个微信账号。</div></div></div>
+          <div class="step"><div class="num">3</div><div><strong>在微信中确认</strong><div class="muted">页面会显示“已扫码，请在微信中确认”。</div></div></div>
+          <div class="step"><div class="num">4</div><div><strong>自动保存并启动</strong><div class="muted">确认后账号文件会保存；正在运行的多账号监督器会自动发现并启动。</div></div></div>
+        </div>
+
+        <h2 style="margin-top:24px">已保存的机器人账号</h2>
+        <div class="actions" style="margin-top:10px"><button id="refreshAccounts" class="secondary">刷新账号列表</button></div>
+        <div id="accounts" class="accounts"><div class="empty">正在加载……</div></div>
+      </section>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const token=document.querySelector('meta[name="mji-admin-token"]').content;
+    const state={session:null,polling:false,lastQrVersion:0};
+    const $=id=>document.getElementById(id);
+    async function api(path,options={}){const r=await fetch(path,{...options,headers:{'Content-Type':'application/json','X-MJI-Admin-Token':token,...(options.headers||{})}});const p=await r.json().catch(()=>({}));if(!r.ok||p.ok===false)throw new Error(p.error||`请求失败（${r.status}）`);return p}
+    function showToast(message){$('toast').textContent=message;$('toast').classList.add('show');clearTimeout(showToast.t);showToast.t=setTimeout(()=>$('toast').classList.remove('show'),3200)}
+    function setButtons(){const active=state.session&&!['confirmed','failed','cancelled'].includes(state.session.status);$('startBtn').disabled=Boolean(active);$('startBtn').textContent=active?'接入进行中……':'重新生成二维码';$('cancelBtn').disabled=!active}
+    function renderSession(s){state.session=s;const box=$('statusBox');box.className=`status ${s?.status||''}`;$('statusMain').textContent=s?.statusText||'尚未开始';let sub='';if(s?.status==='wait'||s?.status==='scanned'){sub=`二维码第 ${s.refreshCount}/3 次 · 约 ${remainingMinutes(s.expiresAt)} 分钟后过期`}else if(s?.status==='confirmed'){sub=`账号：${s.account?.accountId||'已保存'}`}else if(s?.status==='failed'){sub=s.error||'请重新生成二维码'}else if(s?.status==='cancelled'){sub='本次接入已取消'}else{sub='点击“生成二维码”'}$('statusSub').textContent=sub;if(s?.qrSvg&&s.qrVersion!==state.lastQrVersion){state.lastQrVersion=s.qrVersion;$('qrWrap').innerHTML=`<div class="qr">${s.qrSvg}</div>`}if(s?.status==='confirmed'){$('qrWrap').innerHTML='<div class="placeholder"><strong>接入成功</strong>账号已保存，多账号监督器会自动启动它。</div>';showToast('新用户接入成功')}if(s?.status==='failed'){$('qrWrap').innerHTML='<div class="placeholder"><strong>二维码失效或接入失败</strong>请点击“重新生成二维码”。</div>'}if(s?.status==='cancelled'){$('qrWrap').innerHTML='<div class="placeholder"><strong>已取消</strong>可重新生成新的临时二维码。</div>'}setButtons()}
+    function remainingMinutes(value){const ms=new Date(value).getTime()-Date.now();return Math.max(0,Math.ceil(ms/60000))}
+    async function startSession(){try{$('startBtn').disabled=true;$('startBtn').textContent='正在生成……';const p=await api('/api/sessions',{method:'POST',body:'{}'});state.lastQrVersion=0;renderSession(p.session);void pollSession()}catch(e){showToast(e.message);setButtons()}}
+    async function pollSession(){if(state.polling||!state.session)return;state.polling=true;try{while(state.session&&!['confirmed','failed','cancelled'].includes(state.session.status)){const p=await api(`/api/sessions/${encodeURIComponent(state.session.id)}`);renderSession(p.session);if(['confirmed','failed','cancelled'].includes(p.session.status))break;await sleep(700)}await loadAccounts()}catch(e){showToast(e.message)}finally{state.polling=false;setButtons()}}
+    async function cancelSession(){if(!state.session)return;try{const p=await api(`/api/sessions/${encodeURIComponent(state.session.id)}`,{method:'DELETE'});renderSession(p.session)}catch(e){showToast(e.message)}}
+    async function loadAccounts(){try{const p=await api('/api/accounts');const rows=p.accounts||[];$('accounts').innerHTML=rows.length?rows.map(a=>`<div class="account"><div class="account-name">${esc(a.accountId)}</div><div class="account-meta">微信用户：${esc(a.userId||'未记录')}<br>保存时间：${esc(formatDate(a.savedAt))}</div></div>`).join(''):'<div class="empty">暂无已保存账号</div>'}catch(e){$('accounts').innerHTML='<div class="empty">账号列表加载失败</div>';showToast(e.message)}}
+    function formatDate(v){if(!v)return'-';const d=new Date(v);return Number.isNaN(d.getTime())?String(v):new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(d)}
+    function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')}
+    const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+    $('startBtn').addEventListener('click',startSession);$('cancelBtn').addEventListener('click',cancelSession);$('refreshAccounts').addEventListener('click',loadAccounts);loadAccounts();
+  </script>
+</body>
+</html>
