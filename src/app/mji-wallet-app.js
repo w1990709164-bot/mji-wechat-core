@@ -105,6 +105,25 @@ class MjiWalletApp extends MjiOpenAIApp {
         });
     });
   }
+
+  async handleRuntimeEvent(event) {
+    if (event?.type === "runtime.reply.delivery") {
+      return super.handleRuntimeEvent({
+        ...event,
+        type: "runtime.reply.completed",
+        payload: {
+          ...(event.payload || {}),
+          rawText: undefined,
+        },
+      });
+    }
+
+    if (event?.type === "runtime.reply.completed" && event?.payload?.deliveryHandled) {
+      return;
+    }
+
+    return super.handleRuntimeEvent(event);
+  }
 }
 
 function normalizeText(value) {
