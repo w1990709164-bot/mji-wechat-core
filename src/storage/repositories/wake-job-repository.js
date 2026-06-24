@@ -8,6 +8,9 @@ const {
 
 const DEFAULT_DAILY_PROACTIVE_LIMIT = 1;
 const MAX_USER_DAILY_PROACTIVE_LIMIT = 3;
+const DEFAULT_MIN_INTERVAL_MINUTES = 240;
+const DEFAULT_MAX_INTERVAL_MINUTES = 720;
+const DEFAULT_MINIMUM_GAP_MINUTES = 480;
 
 class WakeJobRepository {
   constructor(pool) {
@@ -175,14 +178,21 @@ class WakeJobRepository {
         await client.query(
           `INSERT INTO wake_preferences (
              tenant_id, user_id, user_character_id,
-             enabled, max_messages_per_day, strategy
-           ) VALUES ($1, $2, $3, true, $4, $5::jsonb)
+             enabled, min_interval_minutes, max_interval_minutes,
+             minimum_gap_minutes, max_messages_per_day, strategy, next_wake_at
+           ) VALUES (
+             $1, $2, $3, true, $5, $6, $7, $4, $8::jsonb,
+             NOW() + make_interval(mins => $5)
+           )
            ON CONFLICT (tenant_id, user_character_id) DO NOTHING`,
           [
             input.tenantId,
             input.userId,
             input.userCharacterId,
             DEFAULT_DAILY_PROACTIVE_LIMIT,
+            DEFAULT_MIN_INTERVAL_MINUTES,
+            DEFAULT_MAX_INTERVAL_MINUTES,
+            DEFAULT_MINIMUM_GAP_MINUTES,
             JSON.stringify({ dailyLimitSource: "system_default" }),
           ]
         );
@@ -220,16 +230,26 @@ class WakeJobRepository {
         const result = await client.query(
           `INSERT INTO wake_preferences (
              tenant_id, user_id, user_character_id,
-             enabled, max_messages_per_day, strategy, next_wake_at
-           ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, NULL)
+             enabled, min_interval_minutes, max_interval_minutes,
+             minimum_gap_minutes, max_messages_per_day, strategy, next_wake_at
+           ) VALUES (
+             $1, $2, $3, $4, $6, $7, $8, $5, $9::jsonb,
+             CASE WHEN $4 THEN NOW() + make_interval(mins => $6) ELSE NULL END
+           )
            ON CONFLICT (tenant_id, user_character_id)
            DO UPDATE SET
              enabled = EXCLUDED.enabled,
+             min_interval_minutes = GREATEST(wake_preferences.min_interval_minutes, EXCLUDED.min_interval_minutes),
+             max_interval_minutes = GREATEST(wake_preferences.max_interval_minutes, EXCLUDED.max_interval_minutes),
+             minimum_gap_minutes = GREATEST(wake_preferences.minimum_gap_minutes, EXCLUDED.minimum_gap_minutes),
              max_messages_per_day = EXCLUDED.max_messages_per_day,
              strategy = wake_preferences.strategy || EXCLUDED.strategy,
              next_wake_at = CASE
                WHEN EXCLUDED.enabled = false THEN NULL
-               ELSE wake_preferences.next_wake_at
+               ELSE COALESCE(
+                 wake_preferences.next_wake_at,
+                 NOW() + make_interval(mins => GREATEST(wake_preferences.min_interval_minutes, EXCLUDED.min_interval_minutes))
+               )
              END,
              updated_at = NOW()
            RETURNING *`,
@@ -239,6 +259,9 @@ class WakeJobRepository {
             input.userCharacterId,
             enabled,
             maxMessagesPerDay,
+            DEFAULT_MIN_INTERVAL_MINUTES,
+            DEFAULT_MAX_INTERVAL_MINUTES,
+            DEFAULT_MINIMUM_GAP_MINUTES,
             JSON.stringify(strategyPatch),
           ]
         );
@@ -327,9 +350,9 @@ function mapWakePreference(row) {
     timezone: row.timezone,
     quietStart: row.quiet_start,
     quietEnd: row.quiet_end,
-    minIntervalMinutes: row.min_interval_minutes,
-    maxIntervalMinutes: row.max_interval_minutes,
-    minimumGapMinutes: row.minimum_gap_minutes,
+    minIntervalMinutes: Math.max(Number(row.min_interval_minutes || 0), DEFAULT_MIN_INTERVAL_MINUTES),
+    maxIntervalMinutes: Math.max(Number(row.max_interval_minutes || 0), DEFAULT_MAX_INTERVAL_MINUTES),
+    minimumGapMinutes: Math.max(Number(row.minimum_gap_minutes || 0), DEFAULT_MINIMUM_GAP_MINUTES),
     maxMessagesPerDay: row.max_messages_per_day,
     strategy: row.strategy || {},
     lastWakeAt: row.last_wake_at,
@@ -381,6 +404,9 @@ function asObject(value) {
 
 module.exports = {
   DEFAULT_DAILY_PROACTIVE_LIMIT,
+  DEFAULT_MAX_INTERVAL_MINUTES,
+  DEFAULT_MIN_INTERVAL_MINUTES,
+  DEFAULT_MINIMUM_GAP_MINUTES,
   MAX_USER_DAILY_PROACTIVE_LIMIT,
   WakeJobRepository,
 };
