@@ -11,6 +11,7 @@ const { MemoryRepository } = require("./repositories/memory-repository");
 const { ManagedMemoryRepository } = require("./repositories/managed-memory-repository");
 const { PersonaRepository } = require("./repositories/persona-repository");
 const { WakeJobRepository } = require("./repositories/wake-job-repository");
+const { ProactiveEventRepository } = require("./repositories/proactive-event-repository");
 
 function createStorage(config = {}, options = {}) {
   const postgres = createPostgresClient(config, options);
@@ -24,6 +25,7 @@ function createStorage(config = {}, options = {}) {
     memories: new ManagedMemoryRepository(postgres.pool),
     personas: new PersonaRepository(postgres.pool),
     wakeJobs: new WakeJobRepository(postgres.pool),
+    proactiveEvents: new ProactiveEventRepository(postgres.pool),
 
     withTenant(tenantId, callback, transactionOptions = {}) {
       return withTenantTransaction(
@@ -47,6 +49,7 @@ module.exports = {
   MemoryRepository,
   PersonaRepository,
   PersistentChatRepository,
+  ProactiveEventRepository,
   RechargeRepository,
   UserRepository,
   WakeJobRepository,
