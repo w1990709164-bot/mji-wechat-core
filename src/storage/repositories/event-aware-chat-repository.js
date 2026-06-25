@@ -205,12 +205,14 @@ function shouldCaptureCharacterPromise(input, message) {
   const triggerKind = normalizeText(
     input?.proactiveTriggerKind || input?.payload?.triggerKind
   ).toLowerCase();
+  const normalAssistantReply = source === "chat"
+    || (!source && !triggerKind && !input?.proactiveEventId);
   return Boolean(
     message
     && input?.direction === "outbound"
     && input?.role === "assistant"
     && (input?.contentType || "text") === "text"
-    && source === "chat"
+    && normalAssistantReply
     && !triggerKind
     && !input?.proactiveEventId
     && content
