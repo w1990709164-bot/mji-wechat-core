@@ -14,14 +14,21 @@ function createOrchestrator() {
   });
 }
 
+function eventStub(result) {
+  return {
+    getState() {
+      return {};
+    },
+    async pollOnce() {
+      return result;
+    },
+  };
+}
+
 test("due event is delivered before random proactive polling", async () => {
   const service = createOrchestrator();
   let randomCalls = 0;
-  service.eventService = {
-    async pollOnce() {
-      return { enqueued: true, eventId: "event-1" };
-    },
-  };
+  service.eventService = eventStub({ enqueued: true, eventId: "event-1" });
   service.randomService = {
     async pollOnce() {
       randomCalls += 1;
@@ -37,11 +44,7 @@ test("due event is delivered before random proactive polling", async () => {
 
 test("random proactive polling continues when there is no due event", async () => {
   const service = createOrchestrator();
-  service.eventService = {
-    async pollOnce() {
-      return { skipped: "no_event" };
-    },
-  };
+  service.eventService = eventStub({ skipped: "no_event" });
   service.randomService = {
     async pollOnce() {
       return { skipped: "no_candidate" };
@@ -56,11 +59,7 @@ test("random proactive polling continues when there is no due event", async () =
 test("event global-budget result blocks random fallback", async () => {
   const service = createOrchestrator();
   let randomCalls = 0;
-  service.eventService = {
-    async pollOnce() {
-      return { skipped: "global_budget", globalUsed: 20 };
-    },
-  };
+  service.eventService = eventStub({ skipped: "global_budget", globalUsed: 20 });
   service.randomService = {
     async pollOnce() {
       randomCalls += 1;
@@ -98,5 +97,5 @@ test("event follow-up prompt is specific and medically restrained", () => {
   assert.match(prompt, /明天下午3点去医院复诊/);
   assert.match(prompt, /do not diagnose/i);
   assert.match(prompt, /exactly one short/i);
-  assert.doesNotMatch(prompt, /invent an outcome\.$/i);
+  assert.match(prompt, /do not invent an outcome/i);
 });
