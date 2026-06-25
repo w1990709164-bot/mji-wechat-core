@@ -2,7 +2,7 @@
 
 const { PersistentChatRepository } = require("./persistent-chat-repository");
 const { ProactiveEventRepository } = require("./proactive-event-repository");
-const { extractProactiveEvents } = require("../../services/proactive-event-extractor");
+const { extractProactiveEvents } = require("../../services/proactive-event-extractor-normalized");
 const { shouldExtractProactiveEventText } = require("../../services/proactive-event-guard");
 const { withTenantTransaction } = require("../postgres/tenant-transaction");
 
