@@ -2,7 +2,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { extractProactiveEvents } = require("../src/services/proactive-event-extractor");
+const { extractProactiveEvents } = require("../src/services/proactive-event-extractor-normalized");
 const { shouldExtractProactiveEventText } = require("../src/services/proactive-event-guard");
 
 const now = new Date("2026-06-25T04:00:00.000Z");
@@ -27,11 +27,12 @@ test("uses conservative evening follow-up for date-only exam", () => {
   assert.equal(event.followUpAt.toISOString(), "2026-06-27T11:00:00.000Z");
 });
 
-test("extracts relative duration", () => {
+test("extracts relative duration with a Chinese counter", () => {
   const [event] = extract("两个小时后面试");
   assert.equal(event.eventType, "interview");
   assert.equal(event.eventAt.toISOString(), "2026-06-25T06:00:00.000Z");
   assert.equal(event.followUpAt.toISOString(), "2026-06-25T09:00:00.000Z");
+  assert.equal(event.description, "两个小时后面试");
 });
 
 test("extracts next-week weekday", () => {
