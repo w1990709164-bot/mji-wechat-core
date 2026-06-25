@@ -7,8 +7,16 @@ const path = require("path");
 const dotenv = require("dotenv");
 const { createStorage } = require("../src/storage");
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function main() {
   loadEnv();
+  const flags = parseFlags(process.argv.slice(2));
+  const requestedUserId = normalizeText(flags["user-id"] || process.env.MJI_TEST_USER_ID);
+  if (requestedUserId && !UUID_PATTERN.test(requestedUserId)) {
+    throw new Error("--user-id 必须是完整用户UUID");
+  }
+
   const storage = createStorage({
     databaseApplicationName: "mji-prepare-character-promise-test",
     databaseMaxConnections: 1,
@@ -45,6 +53,7 @@ async function main() {
            u.id AS user_id,
            COALESCE(ci.nickname, u.display_name, '微信用户') AS display_name,
            ci.provider_user_id,
+           ci.channel_account_id,
            uc.id AS user_character_id,
            conv.id AS conversation_id,
            COALESCE(w.balance_credits, 0) - COALESCE(w.reserved_credits, 0) AS available_credits,
@@ -71,7 +80,7 @@ async function main() {
            LIMIT 1
          ) conv ON TRUE
          JOIN LATERAL (
-           SELECT provider_user_id, nickname
+           SELECT provider_user_id, nickname, channel_account_id
            FROM channel_identities
            WHERE tenant_id = u.tenant_id
              AND user_id = u.id
@@ -94,6 +103,7 @@ async function main() {
              )
          ) sent_today ON TRUE
          WHERE u.tenant_id = $1
+           AND ($2::uuid IS NULL OR u.id = $2::uuid)
            AND u.status = 'active'
            AND (u.profile->>'servicePaused') IS DISTINCT FROM 'true'
            AND wp.enabled = true
@@ -110,17 +120,34 @@ async function main() {
                AND pending.status IN ('pending', 'running')
            )
          ORDER BY u.last_seen_at DESC NULLS LAST, u.updated_at DESC
-         LIMIT 1
-         FOR UPDATE OF u, wp`,
-        [tenantId]
+         LIMIT 20`,
+        [tenantId, requestedUserId || null]
       );
-      const candidate = candidateResult.rows[0];
-      if (!candidate) {
+
+      const candidates = candidateResult.rows;
+      if (!candidates.length) {
         throw new Error(
-          "没有符合测试条件的用户。需要：账号正常、主动消息已开启、今日未达上限、可用余额不少于10、没有未完成主动任务"
+          requestedUserId
+            ? `指定用户 ${requestedUserId} 当前不符合测试条件`
+            : "没有符合测试条件的用户"
         );
       }
 
+      if (!requestedUserId && candidates.length > 1) {
+        console.table(candidates.map((item) => ({
+          用户UUID: item.user_id,
+          昵称: item.display_name,
+          微信ID: item.provider_user_id,
+          机器人账号: item.channel_account_id,
+          可用余额: item.available_credits,
+          今日主动: `${item.sent_today}/${item.max_messages_per_day}`,
+        })));
+        throw new Error(
+          "检测到多个可测试用户，禁止自动选择。请使用：npm run test:character-promises:prepare -- --user-id 用户UUID"
+        );
+      }
+
+      const candidate = candidates[0];
       const marker = `promise-live-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
       const now = new Date();
       const event = await storage.proactiveEvents.create({
@@ -142,6 +169,8 @@ async function main() {
           preparedForDeliveryTestAt: now.toISOString(),
           preparedForPromiseDeliveryTestAt: now.toISOString(),
           regressionMarker: marker,
+          requestedTestUserId: requestedUserId || candidate.user_id,
+          channelAccountId: candidate.channel_account_id,
         },
       }, { client });
 
@@ -168,17 +197,36 @@ async function main() {
     });
 
     console.log("\n角色承诺兑现测试已准备完成：");
+    console.log(`- 测试用户UUID：${prepared.user_id}`);
     console.log(`- 测试用户：${prepared.display_name}`);
     console.log(`- 微信用户：${prepared.provider_user_id}`);
+    console.log(`- 机器人账号：${prepared.channel_account_id}`);
     console.log(`- 承诺：${prepared.event.description}`);
     console.log(`- 动作：${prepared.event.metadata.promiseAction}`);
     console.log(`- 可用余额：${prepared.available_credits}`);
     console.log(`- 今日主动次数：${prepared.sent_today}/${prepared.max_messages_per_day}`);
     console.log("- 承诺兑现时间：立即");
-    console.log("\n保持机器人运行且不要先给该用户发新消息，通常会在 15—90 秒内处理。\n");
+    console.log("\n确认上面的用户UUID和机器人账号正确后，不要再给该用户发新消息，通常会在 15—90 秒内处理。\n");
   } finally {
     await storage.close();
   }
+}
+
+function parseFlags(values) {
+  const result = {};
+  for (let index = 0; index < values.length; index += 1) {
+    const token = String(values[index] || "");
+    if (!token.startsWith("--")) continue;
+    const key = token.slice(2);
+    const next = values[index + 1];
+    if (next == null || String(next).startsWith("--")) {
+      result[key] = true;
+      continue;
+    }
+    result[key] = String(next);
+    index += 1;
+  }
+  return result;
 }
 
 function loadEnv() {
