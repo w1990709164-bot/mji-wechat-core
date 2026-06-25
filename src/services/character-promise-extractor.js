@@ -9,7 +9,8 @@ const { normalizeTemporalCounters } = require("./proactive-event-extractor-norma
 
 const UNCERTAINTY_PATTERN = /(?:可能|也许|尽量|看情况|有空(?:的话)?|不一定|说不准|到时候再说|再看看)/;
 const NEGATION_PATTERN = /(?:不来|不找你|不陪你|不叫你|不喊你|不提醒你|不问你|取消|算了|不用我)/;
-const FIRST_PERSON_PATTERN = /(?:^|[，,；;：:\s])我(?:会|来|再|等会|晚点|马上|稍后|明天|明早|明晚|下班后|午休后)?/;
+const FIRST_PERSON_PATTERN = /我(?:会|来|再|等会|晚点|马上|稍后|明天|明早|明晚|下班后|午休后)?/;
+const THIRD_PARTY_ATTRIBUTION_PATTERN = /(?:他|她|别人|角色|朋友).{0,6}(?:说|表示|答应|承诺).{0,20}我/;
 
 const ACTION_DEFINITIONS = [
   {
@@ -119,7 +120,8 @@ function extractCharacterPromises(input = {}) {
 
 function shouldInspectSentence(sentence) {
   if (!sentence || sentence.length > 260) return false;
-  if (!FIRST_PERSON_PATTERN.test(` ${sentence}`) && !sentence.startsWith("我")) return false;
+  if (!FIRST_PERSON_PATTERN.test(sentence)) return false;
+  if (THIRD_PARTY_ATTRIBUTION_PATTERN.test(sentence)) return false;
   if (UNCERTAINTY_PATTERN.test(sentence)) return false;
   if (NEGATION_PATTERN.test(sentence)) return false;
   return true;
