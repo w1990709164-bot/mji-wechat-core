@@ -6,7 +6,7 @@ const path = require("path");
 const dotenv = require("dotenv");
 const { readConfig } = require("./core/config");
 const { renderInstructionTemplate } = require("./core/instructions-template");
-const { MjiWalletApp } = require("./app/mji-wallet-app");
+const { MjiEventWalletApp } = require("./app/mji-event-wallet-app");
 const { buildTerminalHelpText } = require("./core/command-registry");
 const { ensureStickerCatalogFilesSync } = require("./services/sticker-service");
 const { createProjectTooling } = require("./tools/create-project-tooling");
@@ -77,7 +77,7 @@ async function main() {
   const command = config.mode || "help";
   let app = null;
   const getApp = () => {
-    if (!app) app = new MjiWalletApp(config);
+    if (!app) app = new MjiEventWalletApp(config);
     return app;
   };
 
