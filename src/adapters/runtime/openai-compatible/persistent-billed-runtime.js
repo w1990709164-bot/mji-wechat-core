@@ -1,6 +1,6 @@
 "use strict";
 
-const { createBilledOpenAICompatibleRuntimeAdapter } = require("./billed-runtime");
+const { createEventAwareBilledRuntimeAdapter } = require("./event-aware-billed-runtime");
 
 function createPersistentBilledRuntimeAdapter(config, options = {}) {
   const resolveContext = typeof options.resolveContext === "function"
@@ -9,7 +9,7 @@ function createPersistentBilledRuntimeAdapter(config, options = {}) {
   const loadHistory = typeof options.loadHistory === "function"
     ? options.loadHistory
     : async () => [];
-  const base = createBilledOpenAICompatibleRuntimeAdapter(config, options);
+  const base = createEventAwareBilledRuntimeAdapter(config, options);
   const listeners = new Set();
   const hydratedBindingKeys = new Set();
   const runStateByKey = new Map();

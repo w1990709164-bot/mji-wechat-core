@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="mji-admin-token" content="__ADMIN_TOKEN__" />
+  <title>M叽事件主动后台</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090b10;--panel:#121620;--panel2:#171c28;--line:rgba(255,255,255,.09);--text:#f7f8fb;--muted:#9aa3b5;--accent:#8b7cff;--ok:#48d59a;--warn:#ffc568;--danger:#ff6b7a;--cyan:#68d8ff;font-family:Inter,system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif}
+    *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{background:radial-gradient(circle at 8% 0%,rgba(139,124,255,.18),transparent 28%),radial-gradient(circle at 90% 5%,rgba(104,216,255,.08),transparent 24%),var(--bg)}button,input,select{font:inherit}.shell{max-width:1680px;margin:auto;padding:24px}.top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:18px}.brand{display:flex;gap:13px;align-items:center}.logo{width:48px;height:48px;border-radius:16px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent),#594fd0);font-weight:900}.brand h1{margin:0;font-size:24px}.brand p{margin:5px 0 0;color:var(--muted);font-size:12px}.links{display:flex;gap:8px;flex-wrap:wrap}.link,.btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:12px;padding:10px 14px;text-decoration:none;cursor:pointer}.overview{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px;margin-bottom:16px}.card,.panel{background:rgba(18,22,32,.92);border:1px solid var(--line);box-shadow:0 18px 55px rgba(0,0,0,.25)}.card{border-radius:18px;padding:16px}.card .label{color:var(--muted);font-size:11px}.card .value{margin-top:8px;font-size:25px;font-weight:900}.ok{color:var(--ok)}.warn{color:var(--warn)}.danger{color:var(--danger)}.cyan{color:var(--cyan)}.toolbar{display:grid;grid-template-columns:minmax(280px,1fr) 180px auto;gap:10px;margin-bottom:14px}.input,.select{width:100%;border:1px solid var(--line);background:var(--panel2);color:var(--text);border-radius:12px;padding:11px 12px;outline:none}.panel{border-radius:20px;overflow:hidden}.panel-head{display:flex;justify-content:space-between;align-items:center;padding:16px 18px;border-bottom:1px solid var(--line)}.panel-head h2{margin:0;font-size:16px}.muted{color:var(--muted);font-size:11px}.table-wrap{overflow:auto;max-height:720px}table{width:100%;border-collapse:collapse;min-width:1320px}th,td{text-align:left;padding:12px 13px;border-bottom:1px solid var(--line);font-size:12px;vertical-align:top}th{position:sticky;top:0;background:#151a25;color:var(--muted);z-index:1}.status{display:inline-flex;padding:4px 8px;border-radius:999px;font-size:10px;font-weight:800}.status.pending{color:var(--warn);background:rgba(255,197,104,.11)}.status.queued{color:var(--cyan);background:rgba(104,216,255,.11)}.status.sent{color:var(--ok);background:rgba(72,213,154,.11)}.status.failed{color:var(--danger);background:rgba(255,107,122,.11)}.status.dismissed,.status.expired{color:var(--muted);background:rgba(154,163,181,.11)}.event-title{font-weight:850}.sub{display:block;margin-top:5px;color:var(--muted);font-size:10px;max-width:300px;line-height:1.45}.reason{max-width:330px;white-space:normal;line-height:1.45}.money{font-weight:850}.empty{padding:58px 20px;text-align:center;color:var(--muted)}.toast{position:fixed;right:22px;bottom:22px;max-width:420px;padding:13px 15px;background:#202632;border:1px solid var(--line);border-radius:13px;opacity:0;transform:translateY(18px);pointer-events:none;transition:.2s}.toast.show{opacity:1;transform:none}.toast.error{border-color:rgba(255,107,122,.45)}
+    @media(max-width:1100px){.overview{grid-template-columns:repeat(3,1fr)}}@media(max-width:720px){.shell{padding:14px}.top{flex-direction:column}.overview{grid-template-columns:1fr 1fr}.toolbar{grid-template-columns:1fr}.links{width:100%}}
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="top">
+      <div class="brand"><div class="logo">事</div><div><h1>事件主动后台</h1><p>__TENANT_NAME__ · 事件识别、触发原因、发送状态与扣费结果</p></div></div>
+      <div class="links"><a class="link" href="http://127.0.0.1:8787/" target="_blank" rel="noreferrer">管理员总后台</a><a class="link" href="http://127.0.0.1:8788/" target="_blank" rel="noreferrer">用户管理</a></div>
+    </header>
+
+    <section class="overview">
+      <div class="card"><div class="label">全部事件</div><div id="total" class="value">-</div></div>
+      <div class="card"><div class="label">待触发</div><div id="pending" class="value warn">-</div></div>
+      <div class="card"><div class="label">生成中</div><div id="queued" class="value cyan">-</div></div>
+      <div class="card"><div class="label">已发送</div><div id="sent" class="value ok">-</div></div>
+      <div class="card"><div class="label">失败</div><div id="failed" class="value danger">-</div></div>
+      <div class="card"><div class="label">24小时已发送</div><div id="sent24h" class="value ok">-</div></div>
+    </section>
+
+    <section class="toolbar">
+      <input id="search" class="input" placeholder="搜索用户、微信ID、事件类型或原话" autocomplete="off" />
+      <select id="status" class="select"><option value="all">全部状态</option><option value="pending">待触发</option><option value="queued">生成中</option><option value="sent">已发送</option><option value="dismissed">已取消</option><option value="expired">已过期</option><option value="failed">失败</option></select>
+      <button id="reload" class="btn">刷新</button>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><div><h2>事件跟进记录</h2><div id="count" class="muted">正在加载……</div></div></div>
+      <div class="table-wrap"><table><thead><tr><th>用户</th><th>触发来源</th><th>事件</th><th>原话</th><th>事件时间</th><th>跟进时间</th><th>状态</th><th>触发/结果原因</th><th>扣费</th><th>尝试</th></tr></thead><tbody id="body"></tbody></table><div id="empty" class="empty" style="display:none">暂无匹配事件</div></div>
+    </section>
+  </main>
+  <div id="toast" class="toast"></div>
+
+  <script>
+    const token=document.querySelector('meta[name="mji-admin-token"]').content;const $=id=>document.getElementById(id);
+    async function api(path){const r=await fetch(path,{headers:{'X-MJI-Admin-Token':token}});const p=await r.json().catch(()=>({}));if(!r.ok||p.ok===false)throw new Error(p.error||`请求失败（${r.status}）`);return p}
+    async function load(){await Promise.all([loadOverview(),loadEvents()])}
+    async function loadOverview(){const p=await api('/api/overview'),o=p.overview||{};['total','pending','queued','sent','failed','sent24h'].forEach(k=>$(k).textContent=o[k]??0)}
+    async function loadEvents(){const q=new URLSearchParams({search:$('search').value.trim(),status:$('status').value,limit:'500'});$('count').textContent='正在加载……';const p=await api(`/api/events?${q}`),rows=p.events||[];$('count').textContent=`共 ${rows.length} 条事件`;render(rows)}
+    function render(rows){const body=$('body'),empty=$('empty');if(!rows.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';body.innerHTML=rows.map(r=>`<tr><td><span class="event-title">${esc(r.user?.displayName||'微信用户')}</span><span class="sub">${esc(r.user?.providerUserId||'-')}</span></td><td><span class="status queued">${esc(r.triggerLabel||'事件跟进')}</span><span class="sub">${esc(r.source?.extractor||'local')}</span></td><td><span class="event-title">${esc(r.title||'-')}</span><span class="sub">${esc(r.eventTypeLabel||r.eventType||'-')}${r.source?.sensitive?' · 敏感事件':''}</span></td><td class="reason">${esc(r.originalText||'-')}<span class="sub">识别时间词：${esc(r.source?.matchedTimeText||'-')} · 置信度 ${formatPercent(r.source?.confidence)}</span></td><td>${esc(formatDate(r.eventAt))}</td><td>${esc(formatDate(r.followUpAt))}</td><td><span class="status ${esc(r.status)}">${esc(r.statusLabel||r.status)}</span><span class="sub">${esc(formatDate(r.completedAt))}</span></td><td class="reason">${esc(reasonLabel(r))}${r.errorMessage?`<span class="sub">${esc(r.errorMessage)}</span>`:''}</td><td><span class="money ${Number(r.delivery?.chargedCredits||0)>0?'ok':''}">${formatCredits(r.delivery?.chargedCredits||0)}</span><span class="sub">${esc(r.delivery?.chargeDescription||'未扣费')}</span></td><td>${Number(r.attemptCount||0)}</td></tr>`).join('')}
+    function reasonLabel(r){const o=r.delivery?.outcome||'',reason=r.delivery?.reason||'';if(o==='sent')return'事件到期并通过本地筛选，已成功发送';if(o==='retry')return'生成失败，等待重试';if(o==='failed')return'连续失败后停止';if(o==='dismissed')return'安全或用户边界原因取消';if(r.status==='pending')return'等待事件跟进时间';if(r.status==='queued')return'已进入生成队列';if(r.status==='expired')return'超过有效跟进窗口';if(r.status==='dismissed')return'用户已主动聊过或事件被取消';return reason||'事件跟进'}
+    function formatDate(v){if(!v)return'-';const d=new Date(v);if(Number.isNaN(d.getTime()))return String(v);return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(d)}
+    function formatCredits(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(3).replace(/\.000$/,'').replace(/(\.\d*?)0+$/,'$1'):'0'}
+    function formatPercent(v){const n=Number(v);return Number.isFinite(n)&&n>0?`${Math.round(n*100)}%`:'-'}
+    function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')}
+    function toast(m,type='success'){$('toast').textContent=m;$('toast').className=`toast ${type} show`;clearTimeout(toast.t);toast.t=setTimeout(()=>$('toast').classList.remove('show'),3200)}
+    $('reload').addEventListener('click',()=>load().catch(e=>toast(e.message,'error')));$('status').addEventListener('change',()=>loadEvents().catch(e=>toast(e.message,'error')));$('search').addEventListener('keydown',e=>{if(e.key==='Enter')loadEvents().catch(x=>toast(x.message,'error'))});load().catch(e=>toast(e.message,'error'));
+  </script>
+</body>
+</html>

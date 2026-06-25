@@ -5,12 +5,14 @@ const { withTenantTransaction } = require("./postgres/tenant-transaction");
 const { UserRepository } = require("./repositories/user-repository");
 const { ChatRepository } = require("./repositories/chat-repository");
 const { PersistentChatRepository } = require("./repositories/persistent-chat-repository");
+const { EventAwareChatRepository } = require("./repositories/event-aware-chat-repository");
 const { BillingRepository } = require("./repositories/billing-repository");
 const { RechargeRepository } = require("./repositories/recharge-repository");
 const { MemoryRepository } = require("./repositories/memory-repository");
 const { ManagedMemoryRepository } = require("./repositories/managed-memory-repository");
 const { PersonaRepository } = require("./repositories/persona-repository");
 const { WakeJobRepository } = require("./repositories/wake-job-repository");
+const { ProactiveEventRepository } = require("./repositories/proactive-event-repository");
 
 function createStorage(config = {}, options = {}) {
   const postgres = createPostgresClient(config, options);
@@ -18,12 +20,13 @@ function createStorage(config = {}, options = {}) {
   return {
     postgres,
     users: new UserRepository(postgres.pool),
-    chats: new PersistentChatRepository(postgres.pool),
+    chats: new EventAwareChatRepository(postgres.pool),
     billing: new BillingRepository(postgres.pool),
     recharge: new RechargeRepository(postgres.pool),
     memories: new ManagedMemoryRepository(postgres.pool),
     personas: new PersonaRepository(postgres.pool),
     wakeJobs: new WakeJobRepository(postgres.pool),
+    proactiveEvents: new ProactiveEventRepository(postgres.pool),
 
     withTenant(tenantId, callback, transactionOptions = {}) {
       return withTenantTransaction(
@@ -43,10 +46,12 @@ function createStorage(config = {}, options = {}) {
 module.exports = {
   BillingRepository,
   ChatRepository,
+  EventAwareChatRepository,
   ManagedMemoryRepository,
   MemoryRepository,
   PersonaRepository,
   PersistentChatRepository,
+  ProactiveEventRepository,
   RechargeRepository,
   UserRepository,
   WakeJobRepository,
