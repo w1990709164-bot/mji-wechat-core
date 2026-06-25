@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS proactive_events (
   tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   user_id uuid NOT NULL,
   user_character_id uuid NOT NULL,
-  conversation_id uuid,
+  conversation_id uuid REFERENCES conversations(id) ON DELETE SET NULL,
   event_type text NOT NULL
     CHECK (event_type ~ '^[a-z0-9][a-z0-9_-]{0,63}$'),
   title text NOT NULL
@@ -30,8 +30,6 @@ CREATE TABLE IF NOT EXISTS proactive_events (
     REFERENCES app_users(tenant_id, id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id, user_character_id)
     REFERENCES user_characters(tenant_id, id) ON DELETE CASCADE,
-  FOREIGN KEY (tenant_id, conversation_id)
-    REFERENCES conversations(tenant_id, id) ON DELETE SET NULL,
   UNIQUE (tenant_id, id),
   UNIQUE (tenant_id, dedupe_key),
   CHECK (follow_up_at >= event_at)
