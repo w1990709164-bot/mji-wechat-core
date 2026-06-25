@@ -3,6 +3,7 @@
 const { PersistentChatRepository } = require("./persistent-chat-repository");
 const { ProactiveEventRepository } = require("./proactive-event-repository");
 const { extractProactiveEvents } = require("../../services/proactive-event-extractor");
+const { shouldExtractProactiveEventText } = require("../../services/proactive-event-guard");
 const { withTenantTransaction } = require("../postgres/tenant-transaction");
 
 class EventAwareChatRepository extends PersistentChatRepository {
@@ -76,11 +77,13 @@ class EventAwareChatRepository extends PersistentChatRepository {
 }
 
 function shouldCapture(input, message) {
+  const content = normalizeText(input?.content);
   return Boolean(
     message
     && input?.direction === "inbound"
     && input?.role === "user"
-    && normalizeText(input?.content)
+    && content
+    && shouldExtractProactiveEventText(content)
     && input?.captureProactiveEvents !== false
   );
 }
