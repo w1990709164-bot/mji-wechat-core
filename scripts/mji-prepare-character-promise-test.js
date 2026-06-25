@@ -131,7 +131,7 @@ async function main() {
         eventType: "character_promise",
         title: "回来陪用户聊天",
         description: "晚点我会回来陪你聊。",
-        eventAt: new Date(now.getTime() - 60_000),
+        eventAt: now,
         followUpAt: now,
         dedupeKey: marker,
         metadata: {
