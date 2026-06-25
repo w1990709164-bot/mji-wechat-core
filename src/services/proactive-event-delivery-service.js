@@ -68,7 +68,8 @@ class ProactiveEventDeliveryService {
         providerUserId: candidate.providerUserId,
         proactiveEventId: candidate.proactiveEventId,
         eventType: candidate.eventType,
-        triggerKind: "event_follow_up",
+        triggerKind: candidate.proactiveTriggerKind,
+        promiseAction: candidate.promiseAction || null,
         dailyLimit: candidate.maxMessagesPerDay,
         dailySlot: candidate.sentToday + 1,
         billingCredits: this.settings.normalReplyCredits,
@@ -99,13 +100,17 @@ class ProactiveEventDeliveryService {
     }
 
     await this.#recordQueued(state, candidate, job.id);
+    const logPrefix = candidate.proactiveTriggerKind === "character_promise"
+      ? "mji-promise"
+      : "mji-event";
     console.log(
-      `[mji-event] queued event=${candidate.proactiveEventId} user=${candidate.userId} type=${candidate.eventType} daily=${candidate.sentToday + 1}/${candidate.maxMessagesPerDay}`
+      `[${logPrefix}] queued event=${candidate.proactiveEventId} user=${candidate.userId} type=${candidate.eventType} action=${candidate.promiseAction || "-"} daily=${candidate.sentToday + 1}/${candidate.maxMessagesPerDay}`
     );
     return {
       enqueued: true,
       eventId: candidate.proactiveEventId,
       jobId: job.id,
+      triggerKind: candidate.proactiveTriggerKind,
     };
   }
 
@@ -132,7 +137,7 @@ class ProactiveEventDeliveryService {
         `UPDATE proactive_events
          SET status = 'expired',
              completed_at = NOW(),
-             error_message = 'Event follow-up window expired',
+             error_message = 'Proactive follow-up window expired',
              updated_at = NOW()
          WHERE tenant_id = $1
            AND status = 'pending'
@@ -144,11 +149,21 @@ class ProactiveEventDeliveryService {
         `UPDATE proactive_events e
          SET status = 'dismissed',
              completed_at = NOW(),
-             error_message = 'User resumed the conversation after the event',
+             error_message = CASE
+               WHEN e.event_type = 'character_promise'
+                 THEN 'User resumed the conversation before promise delivery'
+               ELSE 'User resumed the conversation after the event'
+             END,
              updated_at = NOW()
          WHERE e.tenant_id = $1
            AND e.status = 'pending'
            AND e.follow_up_at <= NOW()
+           AND (
+             e.event_type <> 'character_promise'
+             OR COALESCE(e.metadata->>'promiseAction', '') IN (
+               'return_chat', 'accompany', 'ask_result'
+             )
+           )
            AND EXISTS (
              SELECT 1
              FROM messages m
@@ -435,9 +450,12 @@ class ProactiveEventDeliveryService {
           candidate.userCharacterId,
           delay,
           JSON.stringify({
-            lastDecision: "event_queued",
+            lastDecision: candidate.proactiveTriggerKind === "character_promise"
+              ? "promise_queued"
+              : "event_queued",
             lastWakeJobId: jobId,
             lastProactiveEventId: candidate.proactiveEventId,
+            lastPromiseAction: candidate.promiseAction || null,
           }),
         ]
       );
@@ -451,20 +469,23 @@ class ProactiveEventDeliveryService {
       retryAt: new Date(Date.now() + Math.max(1, minutes) * 60_000),
       errorMessage: reason,
     });
+    const logPrefix = candidate.proactiveTriggerKind === "character_promise"
+      ? "mji-promise"
+      : "mji-event";
     console.log(
-      `[mji-event] retry event=${candidate.proactiveEventId} reason=${reason} minutes=${Math.max(1, minutes)}`
+      `[${logPrefix}] retry event=${candidate.proactiveEventId} reason=${reason} minutes=${Math.max(1, minutes)}`
     );
   }
 }
 
 function buildEventProactiveTrigger(candidate, context) {
-  const persona = candidate.personaPreferences;
-  const recentConversation = context.messages
-    .map((item) => `${item.role === "assistant" ? "角色" : "用户"}：${truncate(item.content, 240)}`)
-    .join("\n");
-  const memories = context.memories
-    .map((item) => `- [${item.memory_type}] ${item.subject ? `${item.subject}：` : ""}${truncate(item.content, 200)}`)
-    .join("\n");
+  if (resolveProactiveTriggerKind(candidate.eventType, candidate.eventMetadata) === "character_promise") {
+    return buildCharacterPromiseTrigger(candidate, context);
+  }
+
+  const persona = asObject(candidate.personaPreferences);
+  const recentConversation = buildRecentConversation(context.messages);
+  const memories = buildMemoryContext(context.memories);
   const eventTime = formatEventTime(candidate.eventAt, candidate.timezone);
   const sensitive = Boolean(candidate.eventMetadata?.sensitive);
 
@@ -499,7 +520,86 @@ function buildEventProactiveTrigger(candidate, context) {
   ].filter(Boolean).join("\n");
 }
 
+function buildCharacterPromiseTrigger(candidate, context) {
+  const persona = asObject(candidate.personaPreferences);
+  const metadata = asObject(candidate.eventMetadata);
+  const action = normalizeText(metadata.promiseAction || candidate.promiseAction) || "return_chat";
+  const promiseTime = formatEventTime(candidate.eventAt, candidate.timezone);
+  const recentConversation = buildRecentConversation(context.messages);
+  const memories = buildMemoryContext(context.memories);
+  const actionInstruction = promiseActionInstruction(action, metadata);
+
+  return [
+    "CHARACTER PROMISE DELIVERY PASSED THE LOCAL COST AND INTERRUPTION GATES.",
+    "Return send_message, not silent, unless safety or an explicit user boundary requires silence.",
+    "Write exactly one short, natural WeChat message in character.",
+    "The character previously made this promise and is now genuinely fulfilling it.",
+    "Do not say 系统记录、根据记录、提醒任务、主动消息、额度、预算、监控、承诺模块 or 定时任务.",
+    "Do not quote the promise mechanically and do not sound like a calendar notification or customer service.",
+    "Do not claim the user just sent a new message. Do not invent events or outcomes.",
+    "Do not create another future promise inside this delivery message.",
+    actionInstruction,
+    "",
+    `Promise action: ${action}`,
+    `Promise due time: ${promiseTime}`,
+    `Character's original promise: ${truncate(candidate.eventDescription, 500)}`,
+    metadata.linkedEventTitle ? `Linked user event: ${truncate(metadata.linkedEventTitle, 240)}` : "",
+    metadata.linkedEventAt
+      ? `Linked event time: ${formatEventTime(metadata.linkedEventAt, candidate.timezone)}`
+      : "",
+    `Relationship stage: ${candidate.relationshipStage || "unknown"}`,
+    `Character: ${persona.personaName || candidate.characterAlias || candidate.characterName || "M叽"}`,
+    `User alias: ${candidate.userAlias || "用户"}`,
+    persona.role ? `Role: ${truncate(persona.role, 280)}` : "",
+    persona.personality ? `Personality: ${truncate(persona.personality, 420)}` : "",
+    persona.speakingStyle ? `Speaking style: ${truncate(persona.speakingStyle, 420)}` : "",
+    "",
+    "Recent conversation:",
+    recentConversation || "(none)",
+    "",
+    "Relevant memories:",
+    memories || "(none)",
+  ].filter(Boolean).join("\n");
+}
+
+function promiseActionInstruction(action, metadata = {}) {
+  switch (action) {
+    case "wake_up":
+      return "Wake the user briefly and naturally. Do not ask a question unless the character style truly requires one.";
+    case "remind":
+      return "Give the promised reminder clearly and gently. Do not add unrelated advice or multiple questions.";
+    case "ask_result":
+      return `Ask exactly one focused question about how ${metadata.linkedEventTitle || "the event"} went. Do not assume success, failure, symptoms, or feelings.`;
+    case "accompany":
+      return "Resume companionship naturally, as someone who came back when promised. Avoid generic '在吗' unless it fits the recent conversation.";
+    case "return_chat":
+    default:
+      return "Come back naturally and continue the relationship or unfinished topic. Avoid generic '在吗' when a specific recent topic is available.";
+  }
+}
+
+function resolveProactiveTriggerKind(eventType, metadata) {
+  const details = asObject(metadata);
+  return eventType === "character_promise" || details.triggerKind === "character_promise"
+    ? "character_promise"
+    : "event_follow_up";
+}
+
+function buildRecentConversation(messages) {
+  return (Array.isArray(messages) ? messages : [])
+    .map((item) => `${item.role === "assistant" ? "角色" : "用户"}：${truncate(item.content, 240)}`)
+    .join("\n");
+}
+
+function buildMemoryContext(memories) {
+  return (Array.isArray(memories) ? memories : [])
+    .map((item) => `- [${item.memory_type}] ${item.subject ? `${item.subject}：` : ""}${truncate(item.content, 200)}`)
+    .join("\n");
+}
+
 function mapEventCandidate(row) {
+  const eventMetadata = asObject(row.event_metadata);
+  const proactiveTriggerKind = resolveProactiveTriggerKind(row.event_type, eventMetadata);
   return {
     proactiveEventId: row.proactive_event_id,
     eventType: row.event_type,
@@ -507,7 +607,7 @@ function mapEventCandidate(row) {
     eventDescription: row.event_description,
     eventAt: row.event_at,
     followUpAt: row.follow_up_at,
-    eventMetadata: asObject(row.event_metadata),
+    eventMetadata,
     attemptCount: Number(row.attempt_count || 0),
     userId: row.user_id,
     userCharacterId: row.user_character_id,
@@ -530,7 +630,10 @@ function mapEventCandidate(row) {
     personaPreferences: asObject(row.persona_preferences),
     availableCredits: Number(row.available_credits || 0),
     sentToday: Number(row.sent_today || 0),
-    proactiveTriggerKind: "event_follow_up",
+    proactiveTriggerKind,
+    promiseAction: proactiveTriggerKind === "character_promise"
+      ? normalizeText(eventMetadata.promiseAction) || "return_chat"
+      : "",
   };
 }
 
@@ -606,6 +709,10 @@ function truncate(value, max) {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
+function normalizeText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
 function asObject(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
@@ -617,7 +724,10 @@ function formatError(error) {
 module.exports = {
   EVENT_DELIVERY_DEFAULTS,
   ProactiveEventDeliveryService,
+  buildCharacterPromiseTrigger,
   buildEventProactiveTrigger,
   mapEventCandidate,
+  promiseActionInstruction,
   resolveEventDeliverySettings,
+  resolveProactiveTriggerKind,
 };
