@@ -28,13 +28,24 @@ const baseInput = {
 
 test("captures only normal assistant chat replies", () => {
   assert.equal(shouldCaptureCharacterPromise(baseInput, message), true);
+  assert.equal(
+    shouldCaptureCharacterPromise({ ...baseInput, source: undefined }, message),
+    true
+  );
   assert.equal(shouldCaptureCharacterPromise({ ...baseInput, source: "wake" }, message), false);
   assert.equal(shouldCaptureCharacterPromise({
     ...baseInput,
+    source: undefined,
+    proactiveEventId: "55555555-5555-4555-8555-555555555555",
+  }, message), false);
+  assert.equal(shouldCaptureCharacterPromise({
+    ...baseInput,
+    source: undefined,
     proactiveTriggerKind: "event_follow_up",
   }, message), false);
   assert.equal(shouldCaptureCharacterPromise({
     ...baseInput,
+    source: undefined,
     payload: { triggerKind: "character_promise" },
   }, message), false);
   assert.equal(shouldCaptureCharacterPromise({ ...baseInput, role: "user" }, message), false);
