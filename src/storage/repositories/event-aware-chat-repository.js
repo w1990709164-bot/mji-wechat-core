@@ -78,10 +78,12 @@ class EventAwareChatRepository extends PersistentChatRepository {
 
 function shouldCapture(input, message) {
   const content = normalizeText(input?.content);
+  const provider = normalizeText(input?.payload?.provider).toLowerCase();
   return Boolean(
     message
     && input?.direction === "inbound"
     && input?.role === "user"
+    && provider === "weixin"
     && content
     && shouldExtractProactiveEventText(content)
     && input?.captureProactiveEvents !== false
