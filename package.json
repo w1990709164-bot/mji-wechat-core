@@ -54,7 +54,7 @@
     "pg": "^8.22.0",
     "qrcode-terminal": "0.12.0",
     "timeline-for-agent": "github:WenXiaoWendy/timeline-for-agent#main",
-    "whereabouts-mcp": "github:WenXiaoWendy/timeline-for-agent#main",
+    "whereabouts-mcp": "github:WenXiaoWendy/whereabouts-mcp#main",
     "ws": "^8.19.0"
   }
 }
