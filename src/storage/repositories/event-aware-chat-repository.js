@@ -4,6 +4,7 @@ const { PersistentChatRepository } = require("./persistent-chat-repository");
 const { ProactiveEventRepository } = require("./proactive-event-repository");
 const { extractProactiveEvents } = require("../../services/proactive-event-extractor-normalized");
 const { shouldExtractProactiveEventText } = require("../../services/proactive-event-guard");
+const { buildProactiveEventDedupeKey } = require("../../services/proactive-event-dedupe");
 const { withTenantTransaction } = require("../postgres/tenant-transaction");
 
 class EventAwareChatRepository extends PersistentChatRepository {
@@ -40,7 +41,7 @@ class EventAwareChatRepository extends PersistentChatRepository {
           description: event.description,
           eventAt: event.eventAt,
           followUpAt: event.followUpAt,
-          dedupeKey: buildDedupeKey(message.id, event),
+          dedupeKey: buildDedupeKey(input, event),
           metadata: {
             ...event.metadata,
             confidence: event.confidence,
@@ -90,13 +91,14 @@ function shouldCapture(input, message) {
   );
 }
 
-function buildDedupeKey(messageId, event) {
-  return [
-    "source-message",
-    String(messageId),
-    event.eventType,
-    event.eventAt.toISOString(),
-  ].join(":");
+function buildDedupeKey(input, event) {
+  return buildProactiveEventDedupeKey({
+    userId: input?.userId,
+    userCharacterId: input?.userCharacterId,
+    eventType: event.eventType,
+    eventAt: event.eventAt,
+    sourceText: event.metadata?.normalizedSourceText || event.description || event.title,
+  });
 }
 
 function normalizeText(value) {
