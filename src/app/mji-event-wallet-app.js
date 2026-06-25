@@ -33,6 +33,18 @@ class MjiEventWalletApp extends MjiWalletApp {
           source,
         }),
       });
+
+      const requiredCredits = readInt(
+        process.env.MJI_PROACTIVE_EVENT_REQUIRED_CREDITS,
+        10,
+        1_000_000_000,
+        10
+      );
+      this.proactiveCompanionService.eventService.settings.normalReplyCredits = requiredCredits;
+      if (requiredCredits !== 10) {
+        console.log(`[mji-event] test balance gate requiredCredits=${requiredCredits}`);
+      }
+
       this.proactiveCompanionService.start();
     }
     return result;
@@ -54,6 +66,11 @@ class MjiEventWalletApp extends MjiWalletApp {
     }
     return bindingKey;
   }
+}
+
+function readInt(value, min, max, fallback) {
+  const parsed = Number.parseInt(String(value || ""), 10);
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(max, parsed)) : fallback;
 }
 
 function normalizeText(value) {
