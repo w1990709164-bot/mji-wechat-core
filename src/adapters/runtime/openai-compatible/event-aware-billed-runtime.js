@@ -37,13 +37,13 @@ function createEventAwareBilledRuntimeAdapter(config, options = {}) {
         );
         state.lastAction = action;
         if (action.kind === "send_message") {
-          await settleEvent(state.context, {
+          await safeSettleEvent(state.context, {
             status: "sent",
             reason: "send_message",
           });
           state.settled = true;
         } else if (action.kind === "silent") {
-          await settleEvent(state.context, {
+          await safeSettleEvent(state.context, {
             status: "dismissed",
             reason: "silent_or_safety_boundary",
           });
@@ -52,13 +52,13 @@ function createEventAwareBilledRuntimeAdapter(config, options = {}) {
       }
 
       if (event?.type === "runtime.turn.failed") {
-        await settleEvent(state.context, {
+        await safeSettleEvent(state.context, {
           status: "failed",
           reason: normalizeText(event?.payload?.text) || "runtime_failed",
         });
         state.settled = true;
       } else if (event?.type === "runtime.turn.completed" && !state.settled) {
-        await settleEvent(state.context, {
+        await safeSettleEvent(state.context, {
           status: "failed",
           reason: state.lastAction?.reason || "invalid_or_missing_action",
         });
@@ -73,6 +73,24 @@ function createEventAwareBilledRuntimeAdapter(config, options = {}) {
     if (event?.type === "runtime.turn.completed" || event?.type === "runtime.turn.failed") {
       runStateByKey.delete(runKey);
     }
+  }
+
+  async function safeSettleEvent(context, outcome) {
+    const delays = [0, 500, 2000];
+    let lastError = null;
+    for (const delay of delays) {
+      if (delay > 0) await sleep(delay);
+      try {
+        await settleEvent(context, outcome);
+        return true;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    console.error(
+      `[mji-event] outcome persistence deferred event=${context?.proactiveEventId || "-"} status=${outcome?.status || "-"} error=${formatError(lastError)}`
+    );
+    return false;
   }
 
   async function settleEvent(context, outcome) {
@@ -209,11 +227,9 @@ function createEventAwareBilledRuntimeAdapter(config, options = {}) {
         return turn;
       } catch (error) {
         if (context?.proactiveEventId) {
-          await settleEvent(context, {
+          await safeSettleEvent(context, {
             status: "failed",
             reason: formatError(error),
-          }).catch((settleError) => {
-            console.error(`[mji-event] start failure settlement failed: ${formatError(settleError)}`);
           });
         }
         throw error;
@@ -222,6 +238,10 @@ function createEventAwareBilledRuntimeAdapter(config, options = {}) {
   };
 
   return adapter;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function buildRunKey(threadId, turnId) {
