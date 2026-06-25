@@ -27,7 +27,7 @@ async function main() {
 
     await client.query("BEGIN");
     await client.query(
-      "SELECT set_config('app.tenant_id', $1, true)",
+      "SELECT set_config('mji.tenant_id', $1, true)",
       [tenantId]
     );
 
@@ -82,28 +82,28 @@ async function main() {
       metadata: { regressionMarker: marker, owner: "B" },
     }, { client });
 
-    const [eventsA, eventsB, allRows] = await Promise.all([
-      repository.listForUser({
-        tenantId,
-        userId: userA.user_id,
-        statuses: ["pending"],
-        limit: 200,
-      }, { client }),
-      repository.listForUser({
-        tenantId,
-        userId: userB.user_id,
-        statuses: ["pending"],
-        limit: 200,
-      }, { client }),
-      client.query(
-        `SELECT user_id, dedupe_key
-         FROM proactive_events
-         WHERE tenant_id = $1
-           AND dedupe_key LIKE $2
-         ORDER BY dedupe_key`,
-        [tenantId, `${marker}:%`]
-      ),
-    ]);
+    const eventsA = await repository.listForUser({
+      tenantId,
+      userId: userA.user_id,
+      statuses: ["pending"],
+      limit: 200,
+    }, { client });
+
+    const eventsB = await repository.listForUser({
+      tenantId,
+      userId: userB.user_id,
+      statuses: ["pending"],
+      limit: 200,
+    }, { client });
+
+    const allRows = await client.query(
+      `SELECT user_id, dedupe_key
+       FROM proactive_events
+       WHERE tenant_id = $1
+         AND dedupe_key LIKE $2
+       ORDER BY dedupe_key`,
+      [tenantId, `${marker}:%`]
+    );
 
     const ownA = eventsA.filter((event) => event.metadata?.regressionMarker === marker);
     const ownB = eventsB.filter((event) => event.metadata?.regressionMarker === marker);
@@ -135,13 +135,20 @@ async function main() {
 
     await client.query("ROLLBACK");
 
-    const persistedResult = await storage.postgres.query(
+    await client.query("BEGIN");
+    await client.query(
+      "SELECT set_config('mji.tenant_id', $1, true)",
+      [tenantId]
+    );
+    const persistedResult = await client.query(
       `SELECT COUNT(*)::int AS count
        FROM proactive_events
        WHERE tenant_id = $1
          AND dedupe_key LIKE $2`,
       [tenantId, `${marker}:%`]
     );
+    await client.query("ROLLBACK");
+
     assertCondition(Number(persistedResult.rows[0]?.count || 0) === 0, "回滚后仍残留测试事件");
 
     console.log("\n多用户事件隔离测试通过：");
