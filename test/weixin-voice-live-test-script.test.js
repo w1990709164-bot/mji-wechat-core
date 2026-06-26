@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 
 const {
+  DEFAULT_MP3_SAMPLE_RATE,
   DEFAULT_TEST_TEXT,
   requireExplicitAccountId,
   resolveExactTarget,
@@ -18,6 +19,10 @@ test("uses a fixed harmless voice test sentence", () => {
     DEFAULT_TEST_TEXT,
     "你好，这是M叽发送到微信的第一条克隆音色语音测试。"
   );
+});
+
+test("uses a SiliconFlow-compatible MP3 sample rate", () => {
+  assert.equal(DEFAULT_MP3_SAMPLE_RATE, 32000);
 });
 
 test("requires an explicit full robot account id", () => {
