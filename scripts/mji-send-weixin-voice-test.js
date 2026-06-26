@@ -34,6 +34,7 @@ async function main() {
     commandName: "微信语音真实发送测试",
   });
   const accountId = requireExplicitAccountId(authorization.flags);
+  requireUnsupportedVoiceItemOverride(authorization.flags);
   loadEnv();
 
   const text = normalizeText(authorization.flags.text) || DEFAULT_TEST_TEXT;
@@ -100,7 +101,9 @@ async function main() {
       cdnBaseUrl: config.weixinCdnBaseUrl,
     });
 
-    console.log("\n[mji-voice-test] 微信语音发送成功");
+    console.log("\n[mji-voice-test] 微信接口已接受 voice_item 请求");
+    console.log("- 注意：接口 ret=0 只代表请求被接受，不代表微信客户端已经收到");
+    console.log("- 当前 iLink Bot API 可能静默丢弃主动 voice_item，必须以客户端实际收到为准");
     console.log(`- 用户UUID：${target.userId}`);
     console.log(`- 微信用户：${target.providerUserId}`);
     console.log(`- 机器人账号：${account.accountId}`);
@@ -231,6 +234,15 @@ function requireExplicitAccountId(flags) {
   return normalized;
 }
 
+function requireUnsupportedVoiceItemOverride(flags) {
+  if (String(flags?.["force-unsupported-voice-item"] || "").toLowerCase() !== "true") {
+    throw new Error(
+      "当前微信 iLink Bot API 会出现 voice_item 接口返回成功但客户端静默不送达。已停止继续消耗 TTS。仅协议诊断时才可追加 --force-unsupported-voice-item"
+    );
+  }
+  return true;
+}
+
 function printPlan(input) {
   console.log("\n即将执行微信语音真实发送测试：");
   console.log(`- 用户UUID：${input.target.userId}`);
@@ -241,7 +253,8 @@ function printPlan(input) {
   console.log(`- TTS音色：${input.voice || "未配置"}`);
   console.log(`- TTS采样率：${input.sampleRate} Hz`);
   console.log(`- 测试文字长度：${input.textLength}`);
-  console.log("- 发送形式：真正的微信语音气泡");
+  console.log("- 发送形式：实验性微信 voice_item");
+  console.log("- 送达状态：接口可能静默丢弃，不能视为发送成功");
   console.log("- M叽用户额度：不扣除");
   console.log("- 失败处理：不补发文字、不扣额度\n");
 }
@@ -298,5 +311,6 @@ module.exports = {
   DEFAULT_MP3_SAMPLE_RATE,
   DEFAULT_TEST_TEXT,
   requireExplicitAccountId,
+  requireUnsupportedVoiceItemOverride,
   resolveExactTarget,
 };
