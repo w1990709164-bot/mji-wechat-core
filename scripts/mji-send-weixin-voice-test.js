@@ -25,6 +25,7 @@ const {
 } = require("./mji-live-test-guard");
 
 const DEFAULT_TEST_TEXT = "你好，这是M叽发送到微信的第一条克隆音色语音测试。";
+const DEFAULT_MP3_SAMPLE_RATE = 32_000;
 
 async function main() {
   const authorization = requireLiveTestAuthorization({
@@ -72,7 +73,7 @@ async function main() {
       model: normalizeText(authorization.flags.model),
       voice: normalizeText(authorization.flags.voice),
       responseFormat: "mp3",
-      sampleRate: 16000,
+      sampleRate: parseOptionalNumber(authorization.flags["sample-rate"]) ?? DEFAULT_MP3_SAMPLE_RATE,
       speed: parseOptionalNumber(authorization.flags.speed),
       gain: parseOptionalNumber(authorization.flags.gain),
     });
@@ -82,6 +83,7 @@ async function main() {
       accountId: account.accountId,
       model: voiceConfig.model || providerInfo.model,
       voice: voiceConfig.voice || providerInfo.voice,
+      sampleRate: voiceConfig.sampleRate,
       textLength: text.length,
     });
 
@@ -237,6 +239,7 @@ function printPlan(input) {
   console.log(`- 当前角色：${input.target.characterName || "未命名角色"}`);
   console.log(`- TTS模型：${input.model || "未配置"}`);
   console.log(`- TTS音色：${input.voice || "未配置"}`);
+  console.log(`- TTS采样率：${input.sampleRate} Hz`);
   console.log(`- 测试文字长度：${input.textLength}`);
   console.log("- 发送形式：真正的微信语音气泡");
   console.log("- M叽用户额度：不扣除");
@@ -292,6 +295,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+  DEFAULT_MP3_SAMPLE_RATE,
   DEFAULT_TEST_TEXT,
   requireExplicitAccountId,
   resolveExactTarget,
