@@ -56,7 +56,7 @@ function parseFrameHeader(buffer, offset) {
   }
 
   const header = buffer.readUInt32BE(offset);
-  if ((header & 0xffe00000) !== 0xffe00000) return null;
+  if (((header & 0xffe00000) >>> 0) !== 0xffe00000) return null;
 
   const versionBits = (header >>> 19) & 0x3;
   const layerBits = (header >>> 17) & 0x3;
