@@ -11,6 +11,12 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_TEXT_LENGTH = 300;
 const MIN_AUDIO_BYTES = 32;
 const SUPPORTED_FORMATS = new Set(["mp3", "opus", "wav", "pcm"]);
+const SAMPLE_RATES_BY_FORMAT = Object.freeze({
+  mp3: new Set([32_000, 44_100]),
+  opus: new Set([48_000]),
+  wav: new Set([8_000, 16_000, 24_000, 32_000, 44_100]),
+  pcm: new Set([8_000, 16_000, 24_000, 32_000, 44_100]),
+});
 
 function createSiliconFlowTtsProvider(options = {}) {
   const env = options.env || process.env;
@@ -239,6 +245,17 @@ function validateSynthesisRequest(text, config) {
   if (text.length > config.maxTextLength) {
     throw new Error(`语音文本过长：${text.length}/${config.maxTextLength}`);
   }
+  validateSampleRate(config.responseFormat, config.sampleRate);
+}
+
+function validateSampleRate(responseFormat, sampleRate) {
+  if (!Number.isFinite(sampleRate) || sampleRate <= 0) return true;
+  const supported = SAMPLE_RATES_BY_FORMAT[responseFormat];
+  if (!supported || !supported.has(sampleRate)) {
+    const values = supported ? [...supported].join("、") : "平台支持值";
+    throw new Error(`${responseFormat} 格式不支持 ${sampleRate} Hz；可用采样率：${values} Hz`);
+  }
+  return true;
 }
 
 async function readErrorResponse(response, apiKey) {
@@ -324,7 +341,9 @@ function formatError(error) {
 }
 
 module.exports = {
+  SAMPLE_RATES_BY_FORMAT,
   createSiliconFlowTtsProvider,
   mergeVoiceConfig,
   readSiliconFlowTtsConfig,
+  validateSampleRate,
 };
