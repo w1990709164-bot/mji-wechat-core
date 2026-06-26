@@ -7,6 +7,7 @@ const {
   DEFAULT_MP3_SAMPLE_RATE,
   DEFAULT_TEST_TEXT,
   requireExplicitAccountId,
+  requireUnsupportedVoiceItemOverride,
   resolveExactTarget,
 } = require("../scripts/mji-send-weixin-voice-test");
 
@@ -23,6 +24,21 @@ test("uses a fixed harmless voice test sentence", () => {
 
 test("uses a SiliconFlow-compatible MP3 sample rate", () => {
   assert.equal(DEFAULT_MP3_SAMPLE_RATE, 32000);
+});
+
+test("blocks repeat unsupported voice_item tests by default", () => {
+  assert.throws(
+    () => requireUnsupportedVoiceItemOverride({}),
+    /静默不送达/
+  );
+  assert.equal(
+    requireUnsupportedVoiceItemOverride({ "force-unsupported-voice-item": true }),
+    true
+  );
+  assert.equal(
+    requireUnsupportedVoiceItemOverride({ "force-unsupported-voice-item": "true" }),
+    true
+  );
 });
 
 test("requires an explicit full robot account id", () => {
