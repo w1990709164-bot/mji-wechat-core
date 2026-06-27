@@ -74,7 +74,7 @@ class UserRepository {
           `INSERT INTO app_users (
              tenant_id, display_name, timezone, locale, profile, last_seen_at
            ) VALUES ($1, $2, $3, $4, $5::jsonb, NOW())
-           RETURNING id, display_name, timezone, locale, status, profile,
+           RETURNING id, display_name, admin_display_name, timezone, locale, status, profile,
                      last_seen_at, created_at, updated_at`,
           [params.tenantId, displayName, timezone, locale, JSON.stringify(profile)]
         );
@@ -116,6 +116,7 @@ class UserRepository {
     assertTenantId(input?.tenantId);
     assertUuid(input?.userId, "userId");
     const displayName = normalizeNullableText(input.displayName);
+    const adminDisplayName = normalizeNullableText(input.adminDisplayName);
     const timezone = normalizeNullableText(input.timezone);
     const locale = normalizeNullableText(input.locale);
     const profilePatch = asObject(input.profilePatch);
@@ -130,9 +131,10 @@ class UserRepository {
                timezone = COALESCE($4, timezone),
                locale = COALESCE($5, locale),
                profile = profile || $6::jsonb,
+               admin_display_name = CASE WHEN $7::boolean THEN $8 ELSE admin_display_name END,
                updated_at = NOW()
            WHERE tenant_id = $1 AND id = $2
-           RETURNING id, display_name, timezone, locale, status, profile,
+           RETURNING id, display_name, admin_display_name, timezone, locale, status, profile,
                      last_seen_at, created_at, updated_at`,
           [
             input.tenantId,
@@ -141,6 +143,8 @@ class UserRepository {
             timezone,
             locale,
             JSON.stringify(profilePatch),
+            Object.prototype.hasOwnProperty.call(input, "adminDisplayName"),
+            adminDisplayName,
           ]
         );
         return result.rows[0] || null;
@@ -155,6 +159,7 @@ async function findByChannelIdentity(client, params) {
     `SELECT
        u.id,
        u.display_name,
+       u.admin_display_name,
        u.timezone,
        u.locale,
        u.status,
@@ -185,6 +190,7 @@ function mapUserIdentityRow(row, created) {
   return {
     userId: row.id,
     displayName: row.display_name,
+    adminDisplayName: row.admin_display_name,
     timezone: row.timezone,
     locale: row.locale,
     status: row.status,

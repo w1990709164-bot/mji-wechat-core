@@ -33,13 +33,16 @@
     </section>
 
     <section class="toolbar">
-      <input id="search" class="input search" placeholder="搜索昵称、微信ID、用户UUID" autocomplete="off" />
+      <input id="search" class="input search" placeholder="搜索备注名、微信用户ID、机器人实例、用户UUID" autocomplete="off" />
       <select id="filter" class="select">
         <option value="all">全部用户</option>
         <option value="low_balance">余额不足</option>
         <option value="pending">有待确认订单</option>
         <option value="paused">已暂停</option>
         <option value="blocked">已封禁</option>
+      </select>
+      <select id="botInstance" class="select">
+        <option value="">全部机器人实例</option>
       </select>
       <input id="lowBalance" class="input" inputmode="decimal" value="50" title="余额不足阈值" />
       <button id="reload" class="btn">刷新</button>
@@ -60,7 +63,14 @@
       <aside class="panel">
         <div id="detailEmpty" class="empty">请选择一位用户查看详情</div>
         <div id="detail" class="detail" style="display:none">
-          <div class="profile"><div id="avatar" class="avatar">用</div><div><h3 id="name">微信用户</h3><p id="identity"></p><p id="uuid"></p></div></div>
+          <div class="profile"><div id="avatar" class="avatar">用</div><div><h3 id="name">微信用户</h3><p id="identity"></p><p id="uuid"></p><div class="status-actions" style="margin:8px 0 0"><button id="copyUserId" class="btn">复制用户UUID</button><button id="copyProviderUserId" class="btn">复制微信用户ID</button><button id="copyBotInstanceId" class="btn">复制机器人实例</button></div></div></div>
+          <section class="section" style="margin-top:0;padding-top:0;border-top:0">
+            <h4>用户备注名</h4>
+            <div class="form-grid">
+              <input id="adminDisplayName" class="input" maxlength="120" placeholder="例如：小王 / 同事A" />
+              <button id="saveAdminDisplayName" class="btn primary">保存备注</button>
+            </div>
+          </section>
           <div class="status-actions">
             <button class="btn ok" data-status="active">恢复/解封</button>
             <button class="btn warn" data-status="paused">暂停服务</button>
@@ -76,6 +86,8 @@
           </div>
 
           <section class="section"><h4>人设摘要</h4><div id="personaText" class="muted">暂无人设</div></section>
+
+          <section class="section"><h4>通道绑定</h4><div class="mini-table"><table><thead><tr><th>机器人实例</th><th>微信用户ID</th><th>微信昵称</th><th>最近活跃</th></tr></thead><tbody id="identitiesBody"></tbody></table><div id="identitiesEmpty" class="empty">暂无通道绑定</div></div></section>
 
           <section class="section">
             <h4>手动加减额度</h4>
@@ -99,7 +111,7 @@
 
   <script>
     const token=document.querySelector('meta[name="mji-admin-token"]').content;
-    const state={users:[],selectedId:'',detail:null,direction:'add'};
+    const state={users:[],botInstances:[],selectedId:'',detail:null,direction:'add'};
     const $=id=>document.getElementById(id);
 
     async function api(path,options={}){
@@ -109,7 +121,7 @@
       return payload;
     }
 
-    async function loadAll(){await Promise.all([loadOverview(),loadUsers()]);}
+    async function loadAll(){await loadBotInstances();await Promise.all([loadOverview(),loadUsers()]);}
     async function loadOverview(){
       const payload=await api('/api/overview');const o=payload.overview||{};
       $('totalUsers').textContent=o.totalUsers??0;$('activeToday').textContent=o.activeToday??0;
@@ -117,8 +129,15 @@
       $('pendingOrders').textContent=o.pendingOrders??0;$('trialCredits').value=formatCredits(o.trialCredits);
     }
 
+    async function loadBotInstances(){
+      const payload=await api('/api/bot-instances');state.botInstances=payload.botInstances||[];
+      const select=$('botInstance'),current=select.value;
+      select.innerHTML='<option value="">全部机器人实例</option>'+state.botInstances.map(b=>{const label=[b.displayName,b.botInstanceId].filter(Boolean).join(' / ')||b.provider||'机器人实例';return `<option value="${esc(b.botInstanceId)}">${esc(label)}${b.userCount?` (${b.userCount})`:''}</option>`}).join('');
+      if([...select.options].some(o=>o.value===current))select.value=current;
+    }
+
     async function loadUsers(){
-      const params=new URLSearchParams({search:$('search').value.trim(),filter:$('filter').value,lowBalance:$('lowBalance').value||'50',limit:'500'});
+      const params=new URLSearchParams({search:$('search').value.trim(),filter:$('filter').value,botInstance:$('botInstance').value,lowBalance:$('lowBalance').value||'50',limit:'500'});
       $('userCount').textContent='正在加载……';
       const payload=await api(`/api/users?${params}`);state.users=payload.users||[];
       $('userCount').textContent=`共 ${state.users.length} 位用户`;
@@ -130,26 +149,33 @@
     function renderUsers(){
       const body=$('userBody'),empty=$('userEmpty');
       if(!state.users.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';
-      body.innerHTML=state.users.map(u=>{const n=u.nickname||u.displayName||'微信用户';return `<tr class="user-row ${u.id===state.selectedId?'active':''}" data-id="${esc(u.id)}"><td><span class="name">${esc(n)}</span><span class="sub">${esc(u.providerUserId||u.id)}</span></td><td><span class="status ${esc(u.status)}">${esc(statusLabel(u.status))}</span></td><td>${formatCredits(u.availableCredits)}</td><td>${formatCredits(u.totalSpent)}</td><td>¥${formatMoney(u.paidYuan)}</td><td>${u.pendingOrderCount?`<span class="badge">${u.pendingOrderCount}</span>`:'0'}</td><td>${esc(formatDate(u.lastSeenAt))}</td></tr>`}).join('');
+      body.innerHTML=state.users.map(u=>{const n=userVisibleName(u);const bot=[u.botInstanceDisplayName,u.botInstanceId].filter(Boolean).join(' / ');const sub=[bot&&`机器人实例：${bot}`,u.adminDisplayName&&u.nickname?`微信：${u.nickname}`:'',u.providerUserId||u.id].filter(Boolean).join(' · ');return `<tr class="user-row ${u.id===state.selectedId?'active':''}" data-id="${esc(u.id)}"><td><span class="name">${esc(n)}</span><span class="sub">${esc(sub)}</span></td><td><span class="status ${esc(u.status)}">${esc(statusLabel(u.status))}</span></td><td>${formatCredits(u.availableCredits)}</td><td>${formatCredits(u.totalSpent)}</td><td>¥${formatMoney(u.paidYuan)}</td><td>${u.pendingOrderCount?`<span class="badge">${u.pendingOrderCount}</span>`:'0'}</td><td>${esc(formatDate(u.lastSeenAt))}</td></tr>`}).join('');
       body.querySelectorAll('[data-id]').forEach(row=>row.addEventListener('click',()=>selectUser(row.dataset.id)));
     }
 
     async function selectUser(id,rerender=true){state.selectedId=id;if(rerender)renderUsers();const payload=await api(`/api/users/${encodeURIComponent(id)}/detail`);state.detail=payload.detail;renderDetail()}
     function renderDetail(){
       const d=state.detail;if(!d){$('detail').style.display='none';$('detailEmpty').style.display='block';return}
-      $('detailEmpty').style.display='none';$('detail').style.display='block';const u=d.user||{},w=d.wallet||{},m=d.metrics||{},p=d.persona||{};const n=u.nickname||u.displayName||'微信用户';
-      $('avatar').textContent=[...n][0]||'用';$('name').textContent=`${n} · ${statusLabel(u.status)}`;$('identity').textContent=`微信ID：${u.providerUserId||'未记录'}`;$('uuid').textContent=`用户UUID：${u.id}`;
+      $('detailEmpty').style.display='none';$('detail').style.display='block';const u=d.user||{},w=d.wallet||{},m=d.metrics||{},p=d.persona||{};const n=userVisibleName(u);
+      $('avatar').textContent=[...n][0]||'用';$('name').textContent=`${n} · ${statusLabel(u.status)}`;$('identity').textContent=`微信用户ID：${u.providerUserId||'未记录'}${u.nickname?` · 微信昵称：${u.nickname}`:''}`;$('uuid').textContent=`用户UUID：${u.id}`;$('adminDisplayName').value=u.adminDisplayName||'';
+      updateCopyButtons();
       $('balance').textContent=formatCredits(w.balanceCredits);$('available').textContent=formatCredits(w.availableCredits);$('totalSpent').textContent=formatCredits(m.totalSpent);$('paidYuan').textContent=`¥${formatMoney(m.paidYuan)}`;$('memoryCount').textContent=m.memoryCount??0;$('messageCount').textContent=m.messageCount??0;
       $('personaText').textContent=[p.personaName&&`角色：${p.personaName}`,p.userAlias&&`称呼：${p.userAlias}`,p.relationshipStage&&`关系：${relationshipLabel(p.relationshipStage)}`,p.role&&`定位：${p.role}`,p.personality&&`性格：${p.personality}`].filter(Boolean).join(' ｜ ')||'暂无人设';
-      renderOrders(d.orders||[]);renderTransactions(d.transactions||[]);renderAudits(d.audits||[]);
+      renderIdentities(d.identities||[]);renderOrders(d.orders||[]);renderTransactions(d.transactions||[]);renderAudits(d.audits||[]);
     }
 
+    function renderIdentities(rows){const body=$('identitiesBody'),empty=$('identitiesEmpty');if(!rows.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';body.innerHTML=rows.map(r=>{const botInstance=[r.accountDisplayName,r.accountId].filter(Boolean).join(' / ')||r.provider||'-';return `<tr><td>${esc(botInstance)}</td><td title="${esc(r.providerUserId||'')}">${esc(r.providerUserId||'-')}</td><td>${esc(r.nickname||'-')}</td><td>${esc(formatDate(r.lastSeenAt))}</td></tr>`}).join('')}
     function renderOrders(rows){const body=$('ordersBody'),empty=$('ordersEmpty');if(!rows.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';body.innerHTML=rows.map(r=>`<tr><td>${esc(r.orderNo)}</td><td>${esc(r.packageName||'-')}</td><td>¥${formatMoney(r.amountYuan)}</td><td>${formatCredits(r.credits)}</td><td>${esc(orderLabel(r.status))}</td><td>${esc(formatDate(r.createdAt))}</td></tr>`).join('')}
     function renderTransactions(rows){const body=$('transactionsBody'),empty=$('transactionsEmpty');if(!rows.length){body.innerHTML='';empty.style.display='block';return}empty.style.display='none';body.innerHTML=rows.map(r=>{const direction=r.metadata?.direction==='subtract'?'-':(r.type==='capture'?'-':'+');return `<tr><td>${esc(typeLabel(r.type))}</td><td>${direction}${formatCredits(r.credits)}</td><td>${formatCredits(r.balanceAfter)}</td><td title="${esc(r.referenceKey||'')}">${esc(r.description||'-')}</td><td>${esc(formatDate(r.occurredAt))}</td></tr>`}).join('')}
     function renderAudits(rows){$('auditList').innerHTML=rows.length?rows.map(r=>`<div style="padding:7px 0;border-bottom:1px solid var(--line)">${esc(auditLabel(r.action))} · ${esc(formatDate(r.occurredAt))}${r.details?.reason?`<br><span class="muted">${esc(r.details.reason)}</span>`:''}</div>`).join(''):'暂无管理操作'}
 
+    function currentBotInstanceId(){return (state.detail?.identities||[])[0]?.accountId||''}
+    function updateCopyButtons(){const u=state.detail?.user||{};$('copyUserId').disabled=!u.id;$('copyProviderUserId').disabled=!u.providerUserId;$('copyBotInstanceId').disabled=!currentBotInstanceId()}
+    async function copyText(value,label){const text=String(value||'').trim();if(!text)return showToast(`${label}为空`,'error');try{await navigator.clipboard.writeText(text);showToast(`${label}已复制`)}catch{showToast('复制失败，请手动选择文本','error')}}
+
     async function changeStatus(status){if(!state.selectedId)return;const label=statusLabel(status);const reason=prompt(`请输入${label}原因（可留空）`,'')??null;if(reason===null)return;if(!confirm(`确认将当前用户状态改为“${label}”吗？`))return;await api(`/api/users/${state.selectedId}/status`,{method:'POST',body:JSON.stringify({status,reason})});showToast('用户状态已更新');await loadUsers();await selectUser(state.selectedId,false);await loadOverview()}
     async function adjustCredits(){if(!state.selectedId)return;const credits=Number($('credits').value);if(!Number.isFinite(credits)||credits<=0)return showToast('请输入大于 0 的额度','error');const text=state.direction==='add'?'增加':'扣减';if(!confirm(`确认给当前用户${text} ${formatCredits(credits)} 额度吗？`))return;const button=$('submitCredits');button.disabled=true;try{const payload=await api(`/api/users/${state.selectedId}/credits`,{method:'POST',body:JSON.stringify({direction:state.direction,credits,note:$('note').value.trim(),reference:$('reference').value.trim()})});showToast(payload.result?.duplicate?'该业务编号已处理，没有重复操作':`${text}额度成功`);$('credits').value='';$('reference').value='';await loadUsers();await selectUser(state.selectedId,false);await loadOverview()}catch(e){showToast(e.message,'error')}finally{button.disabled=false}}
+    async function saveAdminDisplayName(){if(!state.selectedId)return;const button=$('saveAdminDisplayName');button.disabled=true;try{await api(`/api/users/${state.selectedId}/admin-name`,{method:'POST',body:JSON.stringify({adminDisplayName:$('adminDisplayName').value.trim()})});showToast('用户备注名已保存');await loadUsers();await selectUser(state.selectedId,false)}catch(e){showToast(e.message,'error')}finally{button.disabled=false}}
     async function saveTrial(){const credits=Number($('trialCredits').value);if(!Number.isFinite(credits)||credits<0)return showToast('试用额度必须大于等于 0','error');await api('/api/settings/trial',{method:'POST',body:JSON.stringify({credits})});showToast('新用户试用额度已保存');await loadOverview()}
     function setDirection(direction){state.direction=direction;document.querySelectorAll('[data-direction]').forEach(b=>b.classList.toggle('active',b.dataset.direction===direction));$('submitCredits').textContent=direction==='add'?'确认增加额度':'确认扣减额度'}
 
@@ -157,14 +183,15 @@
     function statusLabel(v){return({active:'正常',paused:'已暂停',blocked:'已封禁',deleted:'已删除'})[v]||v||'未知'}
     function orderLabel(v){return({pending:'待确认',paid:'已到账',cancelled:'已取消'})[v]||v||'-'}
     function typeLabel(v){return({topup:'充值',refund:'补回',capture:'聊天消费',reserve:'预留',release:'释放',adjustment:'人工调整'})[v]||v||'-'}
-    function auditLabel(v){return({'admin.user.status_changed':'用户状态变更','admin.user.credits_adjusted':'人工调整额度'})[v]||v||'管理操作'}
+    function auditLabel(v){return({'admin.user.status_changed':'用户状态变更','admin.user.credits_adjusted':'人工调整额度','admin.user.admin_display_name_updated':'用户备注名变更'})[v]||v||'管理操作'}
+    function userVisibleName(u){return u.adminDisplayName||u.nickname||u.displayName||'微信用户'}
     function relationshipLabel(v){return({stranger:'陌生',acquaintance:'认识',familiar:'熟悉',close:'亲近',ambiguous:'暧昧',partner:'恋人',committed:'稳定关系',custom:'自定义'})[v]||v}
     function formatCredits(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(3).replace(/\.000$/,'').replace(/(\.\d*?)0+$/,'$1'):'0'}
     function formatMoney(v){const n=Number(v);return Number.isFinite(n)?n.toFixed(2):'0.00'}
     function formatDate(v){if(!v)return'-';const d=new Date(v);if(Number.isNaN(d.getTime()))return String(v);return new Intl.DateTimeFormat('zh-CN',{timeZone:'Asia/Shanghai',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false}).format(d)}
     function esc(v){return String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')}
 
-    $('reload').addEventListener('click',loadAll);$('filter').addEventListener('change',loadUsers);$('lowBalance').addEventListener('change',loadUsers);$('search').addEventListener('keydown',e=>{if(e.key==='Enter')loadUsers()});$('saveTrial').addEventListener('click',()=>saveTrial().catch(e=>showToast(e.message,'error')));$('submitCredits').addEventListener('click',adjustCredits);document.querySelectorAll('[data-status]').forEach(b=>b.addEventListener('click',()=>changeStatus(b.dataset.status).catch(e=>showToast(e.message,'error'))));document.querySelectorAll('[data-direction]').forEach(b=>b.addEventListener('click',()=>setDirection(b.dataset.direction)));
+    $('reload').addEventListener('click',loadAll);$('filter').addEventListener('change',loadUsers);$('botInstance').addEventListener('change',loadUsers);$('lowBalance').addEventListener('change',loadUsers);$('search').addEventListener('keydown',e=>{if(e.key==='Enter')loadUsers()});$('copyUserId').addEventListener('click',()=>copyText(state.detail?.user?.id,'用户UUID'));$('copyProviderUserId').addEventListener('click',()=>copyText(state.detail?.user?.providerUserId,'微信用户ID'));$('copyBotInstanceId').addEventListener('click',()=>copyText(currentBotInstanceId(),'机器人实例'));$('saveTrial').addEventListener('click',()=>saveTrial().catch(e=>showToast(e.message,'error')));$('saveAdminDisplayName').addEventListener('click',()=>saveAdminDisplayName().catch(e=>showToast(e.message,'error')));$('submitCredits').addEventListener('click',adjustCredits);document.querySelectorAll('[data-status]').forEach(b=>b.addEventListener('click',()=>changeStatus(b.dataset.status).catch(e=>showToast(e.message,'error'))));document.querySelectorAll('[data-direction]').forEach(b=>b.addEventListener('click',()=>setDirection(b.dataset.direction)));
     loadAll().catch(e=>showToast(e.message,'error'));
   </script>
 </body>
