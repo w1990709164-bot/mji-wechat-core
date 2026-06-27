@@ -44,6 +44,8 @@ CREATE TABLE app_users (
   tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
   display_name text NOT NULL DEFAULT '用户'
     CHECK (char_length(display_name) BETWEEN 1 AND 120),
+  admin_display_name text
+    CHECK (admin_display_name IS NULL OR char_length(admin_display_name) BETWEEN 1 AND 120),
   timezone text NOT NULL DEFAULT 'Asia/Shanghai',
   locale text NOT NULL DEFAULT 'zh-CN',
   status text NOT NULL DEFAULT 'active'

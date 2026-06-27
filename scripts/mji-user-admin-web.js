@@ -11,6 +11,7 @@ const { createStorage } = require("../src/storage");
 const HOST = "127.0.0.1";
 const DEFAULT_PORT = 8788;
 const MAX_BODY_BYTES = 128 * 1024;
+const MAX_ADMIN_DISPLAY_NAME_LENGTH = 120;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ALLOWED_USER_STATUSES = new Set(["active", "paused", "blocked"]);
 
@@ -110,10 +111,17 @@ async function handleRequest({ request, response, storage, tenant, adminToken, t
     const users = await listUsers(storage, tenant.id, {
       search: normalizeText(url.searchParams.get("search")),
       filter: normalizeFilter(url.searchParams.get("filter")),
+      botInstance: normalizeBotInstanceFilter(url.searchParams.get("botInstance")),
       lowBalance: readNonNegativeNumber(url.searchParams.get("lowBalance"), 50),
       limit: readLimit(url.searchParams.get("limit"), 300, 500),
     });
     sendJson(response, 200, { ok: true, users });
+    return;
+  }
+
+  if (method === "GET" && pathname === "/api/bot-instances") {
+    const botInstances = await listBotInstances(storage, tenant.id);
+    sendJson(response, 200, { ok: true, botInstances });
     return;
   }
 
@@ -122,6 +130,17 @@ async function handleRequest({ request, response, storage, tenant, adminToken, t
     const userId = requireUuid(detailMatch[1], "userId");
     const detail = await getUserDetail(storage, tenant.id, userId);
     sendJson(response, 200, { ok: true, detail });
+    return;
+  }
+
+  const adminNameMatch = pathname.match(/^\/api\/users\/([0-9a-f-]+)\/admin-name$/i);
+  if (method === "POST" && adminNameMatch) {
+    const userId = requireUuid(adminNameMatch[1], "userId");
+    const body = await readJsonBody(request);
+    const result = await updateUserAdminDisplayName(storage, tenant.id, userId, {
+      adminDisplayName: normalizeAdminDisplayName(body.adminDisplayName),
+    });
+    sendJson(response, 200, { ok: true, result });
     return;
   }
 
@@ -225,6 +244,7 @@ async function getOverview(storage, tenantId) {
 async function listUsers(storage, tenantId, input) {
   return storage.withTenant(tenantId, async (client) => {
     const keyword = input.search ? `%${input.search.replaceAll("%", "\\%").replaceAll("_", "\\_")}%` : "";
+    const botInstance = normalizeBotInstanceFilter(input.botInstance);
     const result = await client.query(
       `WITH wallet_totals AS (
          SELECT user_id,
@@ -241,8 +261,9 @@ async function listUsers(storage, tenantId, input) {
           GROUP BY user_id
        )
        SELECT
-         u.id, u.display_name, u.status, u.last_seen_at, u.created_at,
+         u.id, u.display_name, u.admin_display_name, u.status, u.last_seen_at, u.created_at,
          ci.provider_user_id, ci.nickname,
+         ci.bot_instance_id, ci.bot_instance_display_name,
          COALESCE(w.balance_credits, 0) AS balance_credits,
          COALESCE(w.reserved_credits, 0) AS reserved_credits,
          COALESCE(w.balance_credits, 0) - COALESCE(w.reserved_credits, 0) AS available_credits,
@@ -251,10 +272,17 @@ async function listUsers(storage, tenantId, input) {
          COALESCE(ot.paid_cents, 0) AS paid_cents
        FROM app_users u
        LEFT JOIN LATERAL (
-         SELECT provider_user_id, nickname
-           FROM channel_identities
-          WHERE tenant_id = u.tenant_id AND user_id = u.id
-          ORDER BY last_seen_at DESC, created_at DESC
+         SELECT
+           ci2.provider_user_id,
+           ci2.nickname,
+           ca.provider_account_id AS bot_instance_id,
+           ca.display_name AS bot_instance_display_name
+           FROM channel_identities ci2
+           JOIN channel_accounts ca
+             ON ca.tenant_id = ci2.tenant_id
+            AND ca.id = ci2.channel_account_id
+          WHERE ci2.tenant_id = u.tenant_id AND ci2.user_id = u.id
+          ORDER BY ci2.last_seen_at DESC, ci2.created_at DESC
           LIMIT 1
        ) ci ON TRUE
        LEFT JOIN user_wallets w ON w.tenant_id = u.tenant_id AND w.user_id = u.id
@@ -262,8 +290,12 @@ async function listUsers(storage, tenantId, input) {
        LEFT JOIN order_totals ot ON ot.user_id = u.id
        WHERE u.tenant_id = $1
          AND u.status <> 'deleted'
-         AND ($2 = '' OR u.display_name ILIKE $2 ESCAPE '\\' OR COALESCE(ci.nickname, '') ILIKE $2 ESCAPE '\\'
-              OR COALESCE(ci.provider_user_id, '') ILIKE $2 ESCAPE '\\' OR u.id::text ILIKE $2 ESCAPE '\\')
+         AND ($2 = '' OR u.display_name ILIKE $2 ESCAPE '\\' OR COALESCE(u.admin_display_name, '') ILIKE $2 ESCAPE '\\'
+              OR COALESCE(ci.nickname, '') ILIKE $2 ESCAPE '\\'
+              OR COALESCE(ci.provider_user_id, '') ILIKE $2 ESCAPE '\\'
+              OR COALESCE(ci.bot_instance_id, '') ILIKE $2 ESCAPE '\\'
+              OR COALESCE(ci.bot_instance_display_name, '') ILIKE $2 ESCAPE '\\'
+              OR u.id::text ILIKE $2 ESCAPE '\\')
          AND (
            $3 = 'all'
            OR ($3 = 'low_balance' AND (COALESCE(w.balance_credits, 0) - COALESCE(w.reserved_credits, 0)) < $4)
@@ -271,11 +303,57 @@ async function listUsers(storage, tenantId, input) {
            OR ($3 = 'paused' AND u.status = 'paused')
            OR ($3 = 'blocked' AND u.status = 'blocked')
          )
+         AND (
+           $6 = ''
+           OR EXISTS (
+             SELECT 1
+               FROM channel_identities ci_filter
+               JOIN channel_accounts ca_filter
+                 ON ca_filter.tenant_id = ci_filter.tenant_id
+                AND ca_filter.id = ci_filter.channel_account_id
+              WHERE ci_filter.tenant_id = u.tenant_id
+                AND ci_filter.user_id = u.id
+                AND ca_filter.provider_account_id = $6
+           )
+         )
        ORDER BY u.last_seen_at DESC NULLS LAST, u.created_at DESC
        LIMIT $5`,
-      [tenantId, keyword, input.filter, input.lowBalance, input.limit]
+      [tenantId, keyword, input.filter, input.lowBalance, input.limit, botInstance]
     );
     return result.rows.map(mapUserListRow);
+  });
+}
+
+async function listBotInstances(storage, tenantId) {
+  return storage.withTenant(tenantId, async (client) => {
+    const result = await client.query(
+      `SELECT
+         ca.provider,
+         ca.provider_account_id,
+         ca.display_name,
+         ca.status,
+         ca.last_connected_at,
+         COUNT(DISTINCT ci.user_id) FILTER (WHERE u.status <> 'deleted')::int AS user_count
+       FROM channel_accounts ca
+       LEFT JOIN channel_identities ci
+         ON ci.tenant_id = ca.tenant_id
+        AND ci.channel_account_id = ca.id
+       LEFT JOIN app_users u
+         ON u.tenant_id = ci.tenant_id
+        AND u.id = ci.user_id
+       WHERE ca.tenant_id = $1
+       GROUP BY ca.id, ca.provider, ca.provider_account_id, ca.display_name, ca.status, ca.last_connected_at
+       ORDER BY ca.last_connected_at DESC NULLS LAST, ca.created_at DESC`,
+      [tenantId]
+    );
+    return result.rows.map((row) => ({
+      provider: row.provider,
+      botInstanceId: row.provider_account_id,
+      displayName: row.display_name || "",
+      status: row.status,
+      userCount: Number(row.user_count || 0),
+      lastConnectedAt: row.last_connected_at,
+    }));
   });
 }
 
@@ -283,7 +361,7 @@ async function getUserDetail(storage, tenantId, userId) {
   return storage.withTenant(tenantId, async (client) => {
     const userResult = await client.query(
       `SELECT
-         u.id, u.display_name, u.status, u.profile, u.last_seen_at, u.created_at, u.updated_at,
+         u.id, u.display_name, u.admin_display_name, u.status, u.profile, u.last_seen_at, u.created_at, u.updated_at,
          ci.provider_user_id, ci.nickname,
          COALESCE(w.balance_credits, 0) AS balance_credits,
          COALESCE(w.reserved_credits, 0) AS reserved_credits,
@@ -355,12 +433,34 @@ async function getUserDetail(storage, tenantId, userId) {
       [tenantId, userId]
     );
 
+    const identitiesResult = await client.query(
+      `SELECT
+         ci.id,
+         ci.provider_user_id,
+         ci.provider_chat_id,
+         ci.nickname,
+         ci.first_seen_at,
+         ci.last_seen_at,
+         ca.provider,
+         ca.provider_account_id,
+         ca.display_name AS account_display_name,
+         ca.status AS account_status
+       FROM channel_identities ci
+       JOIN channel_accounts ca
+         ON ca.tenant_id = ci.tenant_id
+        AND ca.id = ci.channel_account_id
+       WHERE ci.tenant_id = $1 AND ci.user_id = $2
+       ORDER BY ci.last_seen_at DESC, ci.created_at DESC`,
+      [tenantId, userId]
+    );
+
     const preferences = asObject(row.preferences);
     const metrics = metricsResult.rows[0] || {};
     return {
       user: {
         id: row.id,
         displayName: row.display_name,
+        adminDisplayName: row.admin_display_name,
         nickname: row.nickname,
         providerUserId: row.provider_user_id,
         status: row.status,
@@ -415,6 +515,52 @@ async function getUserDetail(storage, tenantId, userId) {
         details: asObject(item.details),
         occurredAt: item.occurred_at,
       })),
+      identities: identitiesResult.rows.map((item) => ({
+        id: item.id,
+        provider: item.provider,
+        accountId: item.provider_account_id,
+        accountDisplayName: item.account_display_name || "",
+        accountStatus: item.account_status,
+        providerUserId: item.provider_user_id,
+        providerChatId: item.provider_chat_id || "",
+        nickname: item.nickname || "",
+        firstSeenAt: item.first_seen_at,
+        lastSeenAt: item.last_seen_at,
+      })),
+    };
+  }, { userId });
+}
+
+async function updateUserAdminDisplayName(storage, tenantId, userId, input) {
+  return storage.withTenant(tenantId, async (client) => {
+    const currentResult = await client.query(
+      `SELECT admin_display_name FROM app_users WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+      [tenantId, userId]
+    );
+    const current = currentResult.rows[0];
+    if (!current) throw httpError(404, "鎵句笉鍒拌鐢ㄦ埛");
+    const result = await client.query(
+      `UPDATE app_users
+          SET admin_display_name = $3,
+              updated_at = NOW()
+        WHERE tenant_id = $1 AND id = $2
+        RETURNING admin_display_name, updated_at`,
+      [tenantId, userId, input.adminDisplayName]
+    );
+    await insertAudit(client, {
+      tenantId,
+      userId,
+      action: "admin.user.admin_display_name_updated",
+      targetType: "app_user",
+      targetId: userId,
+      details: {
+        previousAdminDisplayName: current.admin_display_name || "",
+        nextAdminDisplayName: result.rows[0].admin_display_name || "",
+      },
+    });
+    return {
+      adminDisplayName: result.rows[0].admin_display_name,
+      updatedAt: result.rows[0].updated_at,
     };
   }, { userId });
 }
@@ -629,8 +775,11 @@ function mapUserListRow(row) {
   return {
     id: row.id,
     displayName: row.display_name,
+    adminDisplayName: row.admin_display_name,
     nickname: row.nickname,
     providerUserId: row.provider_user_id,
+    botInstanceId: row.bot_instance_id,
+    botInstanceDisplayName: row.bot_instance_display_name,
     status: row.status,
     balanceCredits: Number(row.balance_credits || 0),
     reservedCredits: Number(row.reserved_credits || 0),
@@ -739,6 +888,24 @@ function normalizeReference(value) {
   return text;
 }
 
+function normalizeAdminDisplayName(value) {
+  const text = normalizeText(value);
+  if (!text) return null;
+  if (text.length > MAX_ADMIN_DISPLAY_NAME_LENGTH) {
+    throw httpError(400, `adminDisplayName must be ${MAX_ADMIN_DISPLAY_NAME_LENGTH} characters or fewer`);
+  }
+  return text;
+}
+
+function normalizeBotInstanceFilter(value) {
+  const text = normalizeText(value);
+  if (!text) return "";
+  if (text.length > 160) {
+    throw httpError(400, "botInstance must be 160 characters or fewer");
+  }
+  return text;
+}
+
 function normalizeFilter(value) {
   const filter = normalizeText(value).toLowerCase();
   return new Set(["all", "low_balance", "pending", "paused", "blocked"]).has(filter)
@@ -793,7 +960,10 @@ function loadEnv() {
   dotenv.config();
 }
 
-module.exports = { startUserAdminWeb };
+module.exports = {
+  startUserAdminWeb,
+  normalizeAdminDisplayName,
+};
 
 if (require.main === module) {
   startUserAdminWeb().catch((error) => {
